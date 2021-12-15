@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["browser-route-module:/Users/kentcdodds/code/remix/examples/infinite-scroll/app/routes/simple.tsx?browser"],
+  "sourcesContent": ["export * from \"/Users/kentcdodds/code/remix/examples/infinite-scroll/app/routes/simple.tsx\";"],
+  "mappings": ";;;;;AAAA;",
+  "names": []
+}

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["browser-route-module:/Users/kentcdodds/code/remix/examples/infinite-scroll/app/routes/index.tsx?browser", "../../../app/routes/index.tsx"],
+  "sourcesContent": ["export { default } from \"/Users/kentcdodds/code/remix/examples/infinite-scroll/app/routes/index.tsx\";", "import { Link } from \"remix\";\n\nexport default function IndexRoute() {\n  return (\n    <div>\n      <h1>Infinite Scroll Demo</h1>\n      <p>\n        There are two demos here. The first shows how to do this in a simple way\n        that's pretty standard for this type of user experience you have around\n        the web. The second is a bit more advanced but a much better user\n        experience. Pick your preferred method.\n      </p>\n      <Link to=\"/advanced\">Advanced</Link>\n      <Link to=\"/simple\">Simple</Link>\n    </div>\n  );\n}\n"],
+  "mappings": ";;;;;;;AAAA;;;ACAA;AAEe,sBAAsB;AACnC,SACE,oCAAC,OAAD,MACE,oCAAC,MAAD,MAAI,yBACJ,oCAAC,KAAD,MAAG,+PAMH,oCAAC,MAAD;AAAA,IAAM,IAAG;AAAA,KAAY,aACrB,oCAAC,MAAD;AAAA,IAAM,IAAG;AAAA,KAAU;AAAA;",
+  "names": []
+}
