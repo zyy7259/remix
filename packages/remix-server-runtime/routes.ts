@@ -1,15 +1,10 @@
-import type {
-  DataRouteObject,
-  ActionFunction as RouterActionFunction,
-  LoaderFunction as RouterLoaderFunction,
-  DataRouteMatch,
-} from "@remix-run/router";
+import type { DataRouteObject, DataRouteMatch } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
-import type { ActionFunction } from "./dist";
+import { callRouteAction, callRouteLoader } from "./data";
 import invariant from "./invariant";
 import type { RouteMatch } from "./routeMatching";
-import type { LoaderFunction, ServerRouteModule } from "./routeModules";
+import type { ServerRouteModule } from "./routeModules";
 
 export interface RouteManifest<Route> {
   [routeId: string]: Route;
@@ -53,22 +48,6 @@ export function createRoutes(
     }));
 }
 
-function getServerHandler(
-  handler?: LoaderFunction | ActionFunction,
-  loadContext?: AppLoadContext
-): RouterLoaderFunction | RouterActionFunction | undefined {
-  if (!handler) {
-    return;
-  }
-  return async ({ request, params }) => {
-    return handler({
-      request,
-      params,
-      context: loadContext,
-    });
-  };
-}
-
 export function createDataRoutes(
   manifest: ServerRouteManifest,
   loadContext?: AppLoadContext,
@@ -84,8 +63,18 @@ export function createDataRoutes(
         id: route.id,
         index: route.index,
         path: route.path,
-        loader: getServerHandler(route.module.loader, loadContext),
-        action: getServerHandler(route.module.action, loadContext),
+        ...(route.module.loader
+          ? {
+              loader: ({ request, params }) =>
+                callRouteLoader({ request, route, params, loadContext }),
+            }
+          : {}),
+        ...(route.module.action
+          ? {
+              action: ({ request, params }) =>
+                callRouteAction({ request, route, params, loadContext }),
+            }
+          : {}),
         errorElement: null,
         handle: route.module.handle,
         // TODO:
@@ -100,10 +89,10 @@ export function convertRouterMatchesToServerMatches(
   routes: ServerRouteManifest
 ): RouteMatch<ServerRoute>[] {
   let matches: RouteMatch<ServerRoute>[] = routerMatches.map((match, index) => {
-    let serverRoute = createRoutes(
-      routes,
-      index > 0 ? routerMatches[index - 1].route.id : undefined
-    ).find((r) => r.id === match.route.id);
+    let parentId = index > 0 ? routerMatches[index - 1].route.id : undefined;
+    let serverRoute = createRoutes(routes, parentId).find(
+      (r) => r.id === match.route.id
+    );
     // TODO: clean this up
     invariant(serverRoute, "Couldn't find server route");
     let serverMatch: RouteMatch<ServerRoute> = {

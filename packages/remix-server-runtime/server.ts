@@ -1,4 +1,5 @@
 import type { StaticHandler } from "@remix-run/router";
+import { isRouteErrorResponse } from "@remix-run/router";
 import { createStaticHandler } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
@@ -40,7 +41,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let url = new URL(request.url);
     let matches = matchServerRoutes(routes, url.pathname);
 
-    let { query } = createStaticHandler({
+    let { query, queryRoute } = createStaticHandler({
       routes: createDataRoutes(build.routes, loadContext),
     });
 
@@ -52,6 +53,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
         matches: matches!,
         handleDataRequest: build.entry.module.handleDataRequest,
         serverMode,
+        queryRoute,
       });
     } else if (matches && !matches[matches.length - 1].route.module.default) {
       response = await handleResourceRequest({
@@ -59,6 +61,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
         loadContext,
         matches,
         serverMode,
+        queryRoute,
       });
     } else {
       response = await handleDocumentRequest({
@@ -87,13 +90,23 @@ async function handleDataRequest({
   matches,
   request,
   serverMode,
+  queryRoute,
 }: {
   handleDataRequest?: HandleDataRequestFunction;
   loadContext: unknown;
   matches: RouteMatch<ServerRoute>[];
   request: Request;
   serverMode: ServerMode;
+  queryRoute: StaticHandler["queryRoute"];
 }): Promise<Response> {
+  let url = new URL(request.url);
+  let routeId = url.searchParams.get("_data");
+
+  if (!routeId) {
+    return errorBoundaryError(new Error(`Missing route id in ?_data`), 403);
+  }
+
+  // TODO: Handle this in the router?
   if (!isValidRequestMethod(request)) {
     return errorBoundaryError(
       new Error(`Invalid request method "${request.method}"`),
@@ -101,70 +114,48 @@ async function handleDataRequest({
     );
   }
 
-  let url = new URL(request.url);
-
-  if (!matches) {
-    return errorBoundaryError(
-      new Error(`No route matches URL "${url.pathname}"`),
-      404
-    );
-  }
-
-  let response: Response;
-  let match: RouteMatch<ServerRoute>;
   try {
-    if (isActionRequest(request)) {
-      match = getRequestMatch(url, matches);
+    let state = await queryRoute(request, routeId);
 
-      response = await callRouteAction({
-        loadContext,
-        match,
-        request: request,
-      });
-    } else {
-      let routeId = url.searchParams.get("_data");
-      if (!routeId) {
-        return errorBoundaryError(new Error(`Missing route id in ?_data`), 403);
-      }
-
-      let tempMatch = matches.find((match) => match.route.id === routeId);
-      if (!tempMatch) {
-        return errorBoundaryError(
-          new Error(`Route "${routeId}" does not match URL "${url.pathname}"`),
-          403
-        );
-      }
-      match = tempMatch;
-
-      response = await callRouteLoader({ loadContext, match, request });
+    if (isRouteErrorResponse(state)) {
+      return errorBoundaryError(new Error(state.data), state.status);
     }
 
-    if (isRedirectResponse(response)) {
-      // We don't have any way to prevent a fetch request from following
-      // redirects. So we use the `X-Remix-Redirect` header to indicate the
-      // next URL, and then "follow" the redirect manually on the client.
-      let headers = new Headers(response.headers);
-      headers.set("X-Remix-Redirect", headers.get("Location")!);
-      headers.delete("Location");
-      if (response.headers.get("Set-Cookie") !== null) {
-        headers.set("X-Remix-Revalidate", "yes");
+    if (state instanceof Response) {
+      let response = state;
+      if (isRedirectResponse(response)) {
+        // We don't have any way to prevent a fetch request from following
+        // redirects. So we use the `X-Remix-Redirect` header to indicate the
+        // next URL, and then "follow" the redirect manually on the client.
+        let headers = new Headers(response.headers);
+        headers.set("X-Remix-Redirect", headers.get("Location")!);
+        headers.delete("Location");
+        if (response.headers.get("Set-Cookie") !== null) {
+          headers.set("X-Remix-Revalidate", "yes");
+        }
+
+        return new Response(null, {
+          status: 204,
+          headers,
+        });
       }
 
-      return new Response(null, {
-        status: 204,
-        headers,
-      });
+      if (handleDataRequest) {
+        response = await handleDataRequest(response, {
+          context: loadContext,
+          // TODO: How to get the matched params?
+          // Call getRequestMatch() or change router return API to { state, params }
+          params: {},
+          request,
+        });
+      }
+
+      return response;
     }
 
-    if (handleDataRequest) {
-      response = await handleDataRequest(response, {
-        context: loadContext,
-        params: match.params,
-        request,
-      });
-    }
-
-    return response;
+    // TODO: Should never get here since callRouteLoader/callRouteAction should
+    // enforce a response?
+    throw new Error("Unhandled queryRoute return value");
   } catch (error: unknown) {
     if (serverMode !== ServerMode.Test) {
       console.error(error);
@@ -308,20 +299,23 @@ async function handleResourceRequest({
   matches,
   request,
   serverMode,
+  queryRoute,
 }: {
   request: Request;
   loadContext: unknown;
   matches: RouteMatch<ServerRoute>[];
   serverMode: ServerMode;
+  queryRoute: StaticHandler["queryRoute"];
 }): Promise<Response> {
-  let match = matches.slice(-1)[0];
-
   try {
-    if (isActionRequest(request)) {
-      return await callRouteAction({ match, loadContext, request });
-    } else {
-      return await callRouteLoader({ match, loadContext, request });
+    // TODO: Not specifying a routeId will internally choose the leaf/target
+    // match.  Clean this API up
+    let state = await queryRoute(request);
+    if (state instanceof Response) {
+      return state;
     }
+    // TODO: Is this a possible flow?
+    throw state;
   } catch (error: any) {
     if (serverMode !== ServerMode.Test) {
       console.error(error);
@@ -345,10 +339,6 @@ async function handleResourceRequest({
 
 const validActionMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-function isActionRequest({ method }: Request): boolean {
-  return validActionMethods.has(method.toUpperCase());
-}
-
 const validRequestMethods = new Set(["GET", "HEAD", ...validActionMethods]);
 
 function isValidRequestMethod({ method }: Request): boolean {
@@ -362,59 +352,6 @@ async function errorBoundaryError(error: Error, status: number) {
       "X-Remix-Error": "yes",
     },
   });
-}
-
-function isIndexRequestUrl(url: URL) {
-  for (let param of url.searchParams.getAll("index")) {
-    // only use bare `?index` params without a value
-    // ✅ /foo?index
-    // ✅ /foo?index&index=123
-    // ✅ /foo?index=123&index
-    // ❌ /foo?index=123
-    if (param === "") {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function getRequestMatch(url: URL, matches: RouteMatch<ServerRoute>[]) {
-  let match = matches.slice(-1)[0];
-
-  if (!isIndexRequestUrl(url) && match.route.id.endsWith("/index")) {
-    return matches.slice(-2)[0];
-  }
-
-  return match;
-}
-
-function getDeepestRouteIdWithBoundary(
-  matches: RouteMatch<ServerRoute>[],
-  key: "CatchBoundary" | "ErrorBoundary"
-) {
-  let matched = getMatchesUpToDeepestBoundary(matches, key).slice(-1)[0];
-  return matched ? matched.route.id : null;
-}
-
-function getMatchesUpToDeepestBoundary(
-  matches: RouteMatch<ServerRoute>[],
-  key: "CatchBoundary" | "ErrorBoundary"
-) {
-  let deepestBoundaryIndex: number = -1;
-
-  matches.forEach((match, index) => {
-    if (match.route.module[key]) {
-      deepestBoundaryIndex = index;
-    }
-  });
-
-  if (deepestBoundaryIndex === -1) {
-    // no route error boundaries, don't need to call any loaders
-    return [];
-  }
-
-  return matches.slice(0, deepestBoundaryIndex + 1);
 }
 
 // This prevents `<Outlet/>` from rendering anything below where the error threw
