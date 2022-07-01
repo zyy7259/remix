@@ -1,5 +1,8 @@
+import type { StaticHandler } from "@remix-run/router";
+import { createStaticHandler } from "@remix-run/router";
+
 import type { AppLoadContext } from "./data";
-import { callRouteAction, callRouteLoader, extractData } from "./data";
+import { callRouteAction, callRouteLoader } from "./data";
 import type { AppState } from "./errors";
 import type { HandleDataRequestFunction, ServerBuild } from "./build";
 import type { EntryContext } from "./entry";
@@ -10,8 +13,10 @@ import { ServerMode, isServerMode } from "./mode";
 import type { RouteMatch } from "./routeMatching";
 import { matchServerRoutes } from "./routeMatching";
 import type { ServerRoute } from "./routes";
+import { convertRouterMatchesToServerMatches } from "./routes";
+import { createDataRoutes } from "./routes";
 import { createRoutes } from "./routes";
-import { json, isRedirectResponse, isCatchResponse } from "./responses";
+import { json, isRedirectResponse } from "./responses";
 import { createServerHandoffString } from "./serverHandoff";
 
 export type RequestHandler = (
@@ -35,6 +40,10 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let url = new URL(request.url);
     let matches = matchServerRoutes(routes, url.pathname);
 
+    let { query } = createStaticHandler({
+      routes: createDataRoutes(build.routes, loadContext),
+    });
+
     let response: Response;
     if (url.searchParams.has("_data")) {
       response = await handleDataRequest({
@@ -54,11 +63,9 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     } else {
       response = await handleDocumentRequest({
         build,
-        loadContext,
-        matches,
         request,
-        routes,
         serverMode,
+        query,
       });
     }
 
@@ -173,20 +180,19 @@ async function handleDataRequest({
 
 async function handleDocumentRequest({
   build,
-  loadContext,
-  matches,
   request,
-  routes,
   serverMode,
+  query,
 }: {
   build: ServerBuild;
-  loadContext: unknown;
-  matches: RouteMatch<ServerRoute>[] | null;
   request: Request;
-  routes: ServerRoute[];
   serverMode?: ServerMode;
+  query: StaticHandler["query"];
 }): Promise<Response> {
-  let url = new URL(request.url);
+  let state = await query(request);
+  if (state instanceof Response) {
+    return state;
+  }
 
   let appState: AppState = {
     trackBoundaries: true,
@@ -198,236 +204,17 @@ async function handleDocumentRequest({
     catch: undefined,
   };
 
-  if (!isValidRequestMethod(request)) {
-    matches = null;
+  if (state.errors) {
+    // TODO: Differentiate catch versus error here
+    let [routeId, error] = Object.entries(state.errors)[0];
     appState.trackCatchBoundaries = false;
-    appState.catch = {
-      data: null,
-      status: 405,
-      statusText: "Method Not Allowed",
-    };
-  } else if (!matches) {
-    appState.trackCatchBoundaries = false;
-    appState.catch = {
-      data: null,
-      status: 404,
-      statusText: "Not Found",
-    };
+    appState.catchBoundaryRouteId = routeId;
+    appState.catch = error;
   }
 
-  let actionStatus: { status: number; statusText: string } | undefined;
-  let actionData: Record<string, unknown> | undefined;
-  let actionMatch: RouteMatch<ServerRoute> | undefined;
-  let actionResponse: Response | undefined;
-
-  if (matches && isActionRequest(request)) {
-    actionMatch = getRequestMatch(url, matches);
-
-    try {
-      actionResponse = await callRouteAction({
-        loadContext,
-        match: actionMatch,
-        request: request,
-      });
-
-      if (isRedirectResponse(actionResponse)) {
-        return actionResponse;
-      }
-
-      actionStatus = {
-        status: actionResponse.status,
-        statusText: actionResponse.statusText,
-      };
-
-      if (isCatchResponse(actionResponse)) {
-        appState.catchBoundaryRouteId = getDeepestRouteIdWithBoundary(
-          matches,
-          "CatchBoundary"
-        );
-        appState.trackCatchBoundaries = false;
-        appState.catch = {
-          ...actionStatus,
-          data: await extractData(actionResponse),
-        };
-      } else {
-        actionData = {
-          [actionMatch.route.id]: await extractData(actionResponse),
-        };
-      }
-    } catch (error: any) {
-      appState.loaderBoundaryRouteId = getDeepestRouteIdWithBoundary(
-        matches,
-        "ErrorBoundary"
-      );
-      appState.trackBoundaries = false;
-      appState.error = await serializeError(error);
-
-      if (serverMode !== ServerMode.Test) {
-        console.error(
-          `There was an error running the action for route ${actionMatch.route.id}`
-        );
-      }
-    }
-  }
-
-  let routeModules = createEntryRouteModules(build.routes);
-
-  let matchesToLoad = matches || [];
-
-  // get rid of the action, we don't want to call it's loader either
-  // because we'll be rendering the error/catch boundary, if you can get
-  // access to the loader data in the error/catch boundary then how the heck
-  // is it supposed to deal with thrown responses and/or errors in the loader?
-  if (appState.catch) {
-    matchesToLoad = getMatchesUpToDeepestBoundary(
-      matchesToLoad,
-      "CatchBoundary"
-    ).slice(0, -1);
-  } else if (appState.error) {
-    matchesToLoad = getMatchesUpToDeepestBoundary(
-      matchesToLoad,
-      "ErrorBoundary"
-    ).slice(0, -1);
-  }
-
-  let loaderRequest = new Request(request.url, {
-    body: null,
-    headers: request.headers,
-    method: request.method,
-    redirect: request.redirect,
-    signal: request.signal,
-  });
-
-  let routeLoaderResults = await Promise.allSettled(
-    matchesToLoad.map((match) =>
-      match.route.module.loader
-        ? callRouteLoader({
-            loadContext,
-            match,
-            request: loaderRequest,
-          })
-        : Promise.resolve(undefined)
-    )
-  );
-
-  // Store the state of the action. We will use this to determine later
-  // what catch or error boundary should be rendered under cases where
-  // actions don't throw but loaders do, actions throw and parent loaders
-  // also throw, etc.
-  let actionCatch = appState.catch;
-  let actionError = appState.error;
-  let actionCatchBoundaryRouteId = appState.catchBoundaryRouteId;
-  let actionLoaderBoundaryRouteId = appState.loaderBoundaryRouteId;
-  // Reset the app error and catch state to propagate the loader states
-  // from the results into the app state.
-  appState.catch = undefined;
-  appState.error = undefined;
-
-  let headerMatches: RouteMatch<ServerRoute>[] = [];
-  let routeLoaderResponses: Record<string, Response> = {};
-  let loaderStatusCodes: number[] = [];
-  let routeData: Record<string, unknown> = {};
-  for (let index = 0; index < matchesToLoad.length; index++) {
-    let match = matchesToLoad[index];
-    let result = routeLoaderResults[index];
-
-    let error = result.status === "rejected" ? result.reason : undefined;
-    let response = result.status === "fulfilled" ? result.value : undefined;
-    let isRedirect = response ? isRedirectResponse(response) : false;
-    let isCatch = response ? isCatchResponse(response) : false;
-
-    // If a parent loader has already caught or error'd, bail because
-    // we don't need any more child data.
-    if (appState.catch || appState.error) {
-      break;
-    }
-
-    // If there is a response and it's a redirect, do it unless there
-    // is an action error or catch state, those action boundary states
-    // take precedence over loader sates, this means if a loader redirects
-    // after an action catches or errors we won't follow it, and instead
-    // render the boundary caused by the action.
-    if (!actionCatch && !actionError && response && isRedirect) {
-      return response;
-    }
-
-    // Track the boundary ID's for the loaders
-    if (match.route.module.CatchBoundary) {
-      appState.catchBoundaryRouteId = match.route.id;
-    }
-    if (match.route.module.ErrorBoundary) {
-      appState.loaderBoundaryRouteId = match.route.id;
-    }
-
-    if (error) {
-      loaderStatusCodes.push(500);
-      appState.trackBoundaries = false;
-      appState.error = await serializeError(error);
-
-      if (serverMode !== ServerMode.Test) {
-        console.error(
-          `There was an error running the data loader for route ${match.route.id}`
-        );
-      }
-      break;
-    } else if (response) {
-      headerMatches.push(match);
-      routeLoaderResponses[match.route.id] = response;
-      loaderStatusCodes.push(response.status);
-
-      if (isCatch) {
-        // If it's a catch response, store it in app state, and bail
-        appState.trackCatchBoundaries = false;
-        appState.catch = {
-          data: await extractData(response),
-          status: response.status,
-          statusText: response.statusText,
-        };
-        break;
-      } else {
-        // Extract and store the loader data
-        routeData[match.route.id] = await extractData(response);
-      }
-    }
-  }
-
-  // If there was not a loader catch or error state triggered reset the
-  // boundaries as they are probably deeper in the tree if the action
-  // initially triggered a boundary as that match would not exist in the
-  // matches to load.
-  if (!appState.catch) {
-    appState.catchBoundaryRouteId = actionCatchBoundaryRouteId;
-  }
-  if (!appState.error) {
-    appState.loaderBoundaryRouteId = actionLoaderBoundaryRouteId;
-  }
-  // If there was an action error or catch, we will reset the state to the
-  // initial values, otherwise we will use whatever came out of the loaders.
-  appState.catch = actionCatch || appState.catch;
-  appState.error = actionError || appState.error;
-
-  let renderableMatches = getRenderableMatches(matches, appState);
-  if (!renderableMatches) {
-    renderableMatches = [];
-
-    let root = routes[0];
-    if (root?.module.CatchBoundary) {
-      appState.catchBoundaryRouteId = "root";
-      renderableMatches.push({
-        params: {},
-        pathname: "",
-        route: routes[0],
-      });
-    }
-  }
-
-  // Handle responses with a non-200 status code. The first loader with a
-  // non-200 status code determines the status code for the whole response.
-  let notOkResponse =
-    actionStatus && actionStatus.status !== 200
-      ? actionStatus.status
-      : loaderStatusCodes.find((status) => status !== 200);
-
+  // TODO: Handle this.  Can we just expose a status code on the static router
+  // state?
+  let notOkResponse = null;
   let responseStatusCode = appState.error
     ? 500
     : typeof notOkResponse === "number"
@@ -436,26 +223,33 @@ async function handleDocumentRequest({
     ? appState.catch.status
     : 200;
 
+  let matches = convertRouterMatchesToServerMatches(
+    state.matches,
+    build.routes
+  );
+  let renderableMatches = getRenderableMatches(matches, appState) || [];
+
+  // TODO: handle results here.  Tor static handlers do we want to not unwrap
+  // any responses up front?  We can process them as needed and then unwrap
+  // after this?
   let responseHeaders = getDocumentHeaders(
     build,
     renderableMatches,
-    routeLoaderResponses,
-    actionResponse
+    {},
+    undefined
   );
 
-  let entryMatches = createEntryMatches(renderableMatches, build.assets.routes);
-
   let serverHandoff = {
-    actionData,
+    actionData: state.actionData || undefined,
     appState: appState,
-    matches: entryMatches,
-    routeData,
+    matches: createEntryMatches(renderableMatches, build.assets.routes),
+    routeData: state.loaderData,
   };
 
   let entryContext: EntryContext = {
     ...serverHandoff,
     manifest: build.assets,
-    routeModules,
+    routeModules: createEntryRouteModules(build.routes),
     serverHandoffString: createServerHandoffString(serverHandoff),
   };
 
