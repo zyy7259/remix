@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import * as React from "react";
-import type { Params } from "react-router";
+import type { ActionFunction, LoaderFunction, Params } from "react-router";
 
 import type { RouteModules, ShouldReloadFunction } from "./routeModules";
 import { loadRouteModule } from "./routeModules";
@@ -64,8 +64,8 @@ export type RouteDataFunction = {
 };
 
 export interface ClientRoute extends Route {
-  loader?: RouteDataFunction;
-  action: RouteDataFunction;
+  loader?: LoaderFunction;
+  action: ActionFunction;
   shouldReload?: ShouldReloadFunction;
   ErrorBoundary?: any;
   CatchBoundary?: any;
@@ -75,7 +75,7 @@ export interface ClientRoute extends Route {
   hasLoader: boolean;
 }
 
-type RemixRouteComponentType = ComponentType<{ id: string }>;
+export type RemixRouteComponentType = ComponentType<{ id: string }>;
 
 export function createClientRoute(
   entryRoute: EntryRoute,
@@ -145,11 +145,11 @@ async function loadRouteModuleWithBlockingLinks(
   return routeModule;
 }
 
-function createLoader(route: EntryRoute, routeModules: RouteModules) {
-  let loader: ClientRoute["loader"] = async ({ url, signal, submission }) => {
+export function createLoader(route: EntryRoute, routeModules: RouteModules) {
+  let loader: LoaderFunction = async ({ request }) => {
     if (route.hasLoader) {
       let [result] = await Promise.all([
-        fetchData(url, route.id, signal, submission),
+        fetchData(request, route.id, false),
         loadRouteModuleWithBlockingLinks(route, routeModules),
       ]);
 
@@ -158,6 +158,7 @@ function createLoader(route: EntryRoute, routeModules: RouteModules) {
       let redirect = await checkRedirect(result);
       if (redirect) return redirect;
 
+      // TODO: Do we need to extract here or can we leverage ErrorResponse?
       if (isCatchResponse(result)) {
         throw new CatchValue(
           result.status,
@@ -166,7 +167,7 @@ function createLoader(route: EntryRoute, routeModules: RouteModules) {
         );
       }
 
-      return extractData(result);
+      return result;
     } else {
       await loadRouteModuleWithBlockingLinks(route, routeModules);
     }
@@ -175,8 +176,8 @@ function createLoader(route: EntryRoute, routeModules: RouteModules) {
   return loader;
 }
 
-function createAction(route: EntryRoute, routeModules: RouteModules) {
-  let action: ClientRoute["action"] = async ({ url, signal, submission }) => {
+export function createAction(route: EntryRoute, routeModules: RouteModules) {
+  let action: ActionFunction = async ({ request }) => {
     if (!route.hasAction) {
       console.error(
         `Route "${route.id}" does not have an action, but you are trying ` +
@@ -184,7 +185,7 @@ function createAction(route: EntryRoute, routeModules: RouteModules) {
       );
     }
 
-    let result = await fetchData(url, route.id, signal, submission);
+    let result = await fetchData(request, route.id, true);
 
     if (result instanceof Error) {
       throw result;
@@ -195,6 +196,7 @@ function createAction(route: EntryRoute, routeModules: RouteModules) {
 
     await loadRouteModuleWithBlockingLinks(route, routeModules);
 
+    // TODO: Do we need to extract here or can we leverage ErrorResponse?
     if (isCatchResponse(result)) {
       throw new CatchValue(
         result.status,
@@ -203,7 +205,7 @@ function createAction(route: EntryRoute, routeModules: RouteModules) {
       );
     }
 
-    return extractData(result);
+    return result;
   };
 
   return action;

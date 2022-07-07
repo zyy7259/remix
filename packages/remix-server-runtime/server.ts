@@ -1,9 +1,8 @@
-import type { StaticHandler } from "@remix-run/router";
+import type { DataRouteObject, StaticHandler } from "@remix-run/router";
 import { isRouteErrorResponse } from "@remix-run/router";
 import { createStaticHandler } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
-import { callRouteAction, callRouteLoader } from "./data";
 import type { AppState } from "./errors";
 import type { HandleDataRequestFunction, ServerBuild } from "./build";
 import type { EntryContext } from "./entry";
@@ -14,8 +13,10 @@ import { ServerMode, isServerMode } from "./mode";
 import type { RouteMatch } from "./routeMatching";
 import { matchServerRoutes } from "./routeMatching";
 import type { ServerRoute } from "./routes";
-import { convertRouterMatchesToServerMatches } from "./routes";
-import { createDataRoutes } from "./routes";
+import {
+  convertRouterMatchesToServerMatches,
+  createServerDataRoutes,
+} from "./rrr";
 import { createRoutes } from "./routes";
 import { json, isRedirectResponse } from "./responses";
 import { createServerHandoffString } from "./serverHandoff";
@@ -41,8 +42,8 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let url = new URL(request.url);
     let matches = matchServerRoutes(routes, url.pathname);
 
-    let { query, queryRoute } = createStaticHandler({
-      routes: createDataRoutes(build.routes, loadContext),
+    let { dataRoutes, query, queryRoute } = createStaticHandler({
+      routes: createServerDataRoutes(build.routes, loadContext),
     });
 
     let response: Response;
@@ -50,7 +51,6 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
       response = await handleDataRequest({
         request,
         loadContext,
-        matches: matches!,
         handleDataRequest: build.entry.module.handleDataRequest,
         serverMode,
         queryRoute,
@@ -58,8 +58,6 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     } else if (matches && !matches[matches.length - 1].route.module.default) {
       response = await handleResourceRequest({
         request,
-        loadContext,
-        matches,
         serverMode,
         queryRoute,
       });
@@ -69,6 +67,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
         request,
         serverMode,
         query,
+        dataRoutes,
       });
     }
 
@@ -87,14 +86,12 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
 async function handleDataRequest({
   handleDataRequest,
   loadContext,
-  matches,
   request,
   serverMode,
   queryRoute,
 }: {
   handleDataRequest?: HandleDataRequestFunction;
   loadContext: unknown;
-  matches: RouteMatch<ServerRoute>[];
   request: Request;
   serverMode: ServerMode;
   queryRoute: StaticHandler["queryRoute"];
@@ -107,6 +104,7 @@ async function handleDataRequest({
   }
 
   // TODO: Handle this in the router?
+  // TODO: Add HEAD request support to the router
   if (!isValidRequestMethod(request)) {
     return errorBoundaryError(
       new Error(`Invalid request method "${request.method}"`),
@@ -116,6 +114,10 @@ async function handleDataRequest({
 
   try {
     let state = await queryRoute(request, routeId);
+
+    if (state instanceof Error) {
+      return errorBoundaryError(state, 500);
+    }
 
     if (isRouteErrorResponse(state)) {
       return errorBoundaryError(new Error(state.data), state.status);
@@ -174,15 +176,17 @@ async function handleDocumentRequest({
   request,
   serverMode,
   query,
+  dataRoutes,
 }: {
   build: ServerBuild;
   request: Request;
   serverMode?: ServerMode;
   query: StaticHandler["query"];
+  dataRoutes: DataRouteObject[];
 }): Promise<Response> {
-  let state = await query(request);
-  if (state instanceof Response) {
-    return state;
+  let context = await query(request);
+  if (context instanceof Response) {
+    return context;
   }
 
   let appState: AppState = {
@@ -195,9 +199,9 @@ async function handleDocumentRequest({
     catch: undefined,
   };
 
-  if (state.errors) {
+  if (context.errors) {
     // TODO: Differentiate catch versus error here
-    let [routeId, error] = Object.entries(state.errors)[0];
+    let [routeId, error] = Object.entries(context.errors)[0];
     appState.trackCatchBoundaries = false;
     appState.catchBoundaryRouteId = routeId;
     appState.catch = error;
@@ -215,12 +219,12 @@ async function handleDocumentRequest({
     : 200;
 
   let matches = convertRouterMatchesToServerMatches(
-    state.matches,
+    context.matches,
     build.routes
   );
   let renderableMatches = getRenderableMatches(matches, appState) || [];
 
-  // TODO: handle results here.  Tor static handlers do we want to not unwrap
+  // TODO: handle results here.  For static handlers do we want to not unwrap
   // any responses up front?  We can process them as needed and then unwrap
   // after this?
   let responseHeaders = getDocumentHeaders(
@@ -231,10 +235,10 @@ async function handleDocumentRequest({
   );
 
   let serverHandoff = {
-    actionData: state.actionData || undefined,
+    actionData: context.actionData || undefined,
     appState: appState,
     matches: createEntryMatches(renderableMatches, build.assets.routes),
-    routeData: state.loaderData,
+    routeData: context.loaderData,
   };
 
   let entryContext: EntryContext = {
@@ -242,6 +246,9 @@ async function handleDocumentRequest({
     manifest: build.assets,
     routeModules: createEntryRouteModules(build.routes),
     serverHandoffString: createServerHandoffString(serverHandoff),
+    dataRoutes,
+    dataLocation: context.location,
+    dataMatches: context.matches,
   };
 
   let handleDocumentRequest = build.entry.module.default;
@@ -253,6 +260,7 @@ async function handleDocumentRequest({
       entryContext
     );
   } catch (error: any) {
+    console.log("caught error in entry.server handleDocumentRequest", error);
     responseStatusCode = 500;
 
     // Go again, this time with the componentDidCatch emulation. As it rendered
@@ -295,15 +303,11 @@ async function handleDocumentRequest({
 }
 
 async function handleResourceRequest({
-  loadContext,
-  matches,
   request,
   serverMode,
   queryRoute,
 }: {
   request: Request;
-  loadContext: unknown;
-  matches: RouteMatch<ServerRoute>[];
   serverMode: ServerMode;
   queryRoute: StaticHandler["queryRoute"];
 }): Promise<Response> {

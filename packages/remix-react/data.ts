@@ -3,12 +3,6 @@ import type { Submission } from "./transition";
 
 export type AppData = any;
 
-export type FormMethod = "get" | "post" | "put" | "patch" | "delete";
-
-export type FormEncType =
-  | "application/x-www-form-urlencoded"
-  | "multipart/form-data";
-
 export function isCatchResponse(response: any): boolean {
   return (
     response instanceof Response &&
@@ -31,18 +25,23 @@ export function isRedirectResponse(response: any): boolean {
 }
 
 export async function fetchData(
-  url: URL,
+  request: Request,
   routeId: string,
-  signal: AbortSignal,
-  submission?: Submission
+  isAction = false
 ): Promise<Response | Error> {
+  let url = new URL(request.url);
   url.searchParams.set("_data", routeId);
 
-  let init: RequestInit = submission
-    ? getActionInit(submission, signal)
-    : { credentials: "same-origin", signal };
-
-  let response = await fetch(url.href, init);
+  // TODO: Clean this up - the incoming "request" is a POST action - but our
+  // revalidating requests need to be GET's.  Should this be handled in the
+  // router with a net new request?
+  let init: RequestInit = {
+    credentials: "same-origin",
+    headers: request.headers,
+    signal: request.signal,
+    ...(isAction ? await getActionInit(request) : {}),
+  };
+  let response = await fetch(url, init);
 
   if (isErrorResponse(response)) {
     let data = await response.json();
@@ -66,16 +65,15 @@ export async function extractData(response: Response): Promise<AppData> {
   return response.text();
 }
 
-function getActionInit(
-  submission: Submission,
-  signal: AbortSignal
-): RequestInit {
-  let { encType, method, formData } = submission;
-
-  let headers = undefined;
+async function getActionInit(request: Request): Promise<RequestInit> {
+  let formData = await request.clone().formData();
   let body = formData;
 
-  if (encType === "application/x-www-form-urlencoded") {
+  if (
+    request.headers
+      .get("Content-Type")
+      ?.startsWith("application/x-www-form-urlencoded")
+  ) {
     body = new URLSearchParams();
     for (let [key, value] of formData) {
       invariant(
@@ -84,14 +82,7 @@ function getActionInit(
       );
       body.append(key, value);
     }
-    headers = { "Content-Type": encType };
   }
 
-  return {
-    method,
-    body,
-    signal,
-    credentials: "same-origin",
-    headers,
-  };
+  return { method: request.method, body };
 }

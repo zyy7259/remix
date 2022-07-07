@@ -1,9 +1,7 @@
-// TODO: We eventually might not want to import anything directly from `history`
-// and leverage `react-router` here instead
-import type { Location, To } from "history";
-import { Action, createPath } from "history";
+import type { StaticHandlerContext } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
+import { DataStaticRouter } from "react-router-dom/server";
 
 import { RemixEntry } from "./components";
 import type { EntryContext } from "./entry";
@@ -23,67 +21,19 @@ export function RemixServer({ context, url }: RemixServerProps): ReactElement {
     url = new URL(url);
   }
 
-  let location: Location = {
-    pathname: url.pathname,
-    search: url.search,
-    hash: "",
-    state: null,
-    key: "default",
-  };
-
-  let staticNavigator = {
-    createHref(to: To) {
-      return typeof to === "string" ? to : createPath(to);
-    },
-    push(to: To) {
-      throw new Error(
-        `You cannot use navigator.push() on the server because it is a stateless ` +
-          `environment. This error was probably triggered when you did a ` +
-          `\`navigate(${JSON.stringify(to)})\` somewhere in your app.`
-      );
-    },
-    replace(to: To) {
-      throw new Error(
-        `You cannot use navigator.replace() on the server because it is a stateless ` +
-          `environment. This error was probably triggered when you did a ` +
-          `\`navigate(${JSON.stringify(to)}, { replace: true })\` somewhere ` +
-          `in your app.`
-      );
-    },
-    go(delta: number) {
-      throw new Error(
-        `You cannot use navigator.go() on the server because it is a stateless ` +
-          `environment. This error was probably triggered when you did a ` +
-          `\`navigate(${delta})\` somewhere in your app.`
-      );
-    },
-    back() {
-      throw new Error(
-        `You cannot use navigator.back() on the server because it is a stateless ` +
-          `environment.`
-      );
-    },
-    forward() {
-      throw new Error(
-        `You cannot use navigator.forward() on the server because it is a stateless ` +
-          `environment.`
-      );
-    },
-    block() {
-      throw new Error(
-        `You cannot use navigator.block() on the server because it is a stateless ` +
-          `environment.`
-      );
-    },
+  let staticContext: StaticHandlerContext = {
+    location: context.dataLocation,
+    matches: context.dataMatches,
+    loaderData: context.routeData,
+    actionData: context.actionData || null,
+    // TODO: do we need to send these through or will we handle this via remix
+    // server-side error boundaries?
+    errors: null,
   };
 
   return (
-    <RemixEntry
-      context={context}
-      action={Action.Pop}
-      location={location}
-      navigator={staticNavigator}
-      static={true}
-    />
+    <DataStaticRouter dataRoutes={context.dataRoutes} context={staticContext}>
+      <RemixEntry context={context} />
+    </DataStaticRouter>
   );
 }

@@ -1,3 +1,9 @@
+import type {
+  DataRouteMatch,
+  DataRouteObject,
+  Location,
+} from "@remix-run/router";
+
 import type { AppState } from "./errors";
 import type {
   RouteManifest,
@@ -17,6 +23,11 @@ export interface EntryContext {
   actionData?: RouteData;
   routeModules: RouteModules<EntryRouteModule>;
   serverHandoffString?: string;
+
+  // New fields for data router
+  dataRoutes: DataRouteObject[];
+  dataLocation: Location;
+  dataMatches: DataRouteMatch[];
 }
 
 export interface AssetsManifest {

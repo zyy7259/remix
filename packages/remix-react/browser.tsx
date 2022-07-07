@@ -1,13 +1,13 @@
-// TODO: We eventually might not want to import anything directly from `history`
-// and leverage `react-router` here instead
-import type { BrowserHistory, Update } from "history";
-import { createBrowserHistory } from "history";
+import type { Router as DataRouter } from "@remix-run/router";
+import { createBrowserRouter } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
+import { WithDataRouter } from "react-router-dom";
 
-import { RemixEntry } from "./components";
+import { RemixEntry, RemixRoute } from "./components";
 import type { EntryContext } from "./entry";
 import type { RouteModules } from "./routeModules";
+import { createClientDataRoutes } from "./rrr";
 
 /* eslint-disable prefer-let/prefer-let */
 declare global {
@@ -17,6 +17,12 @@ declare global {
 }
 /* eslint-enable prefer-let/prefer-let */
 
+// Module-scoped singleton to hold the router.  Extracted from the React lifecycle
+// to avoid issues w.r.t. dual initialization fetches in concurrent rendering.
+// Data router apps are expected to have a static route tree and are not intended
+// to be unmounted/remounted at runtime.
+let routerSingleton: DataRouter;
+
 export interface RemixBrowserProps {}
 
 /**
@@ -25,22 +31,6 @@ export interface RemixBrowserProps {}
  * that was received from the server.
  */
 export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
-  let historyRef = React.useRef<BrowserHistory>();
-  if (historyRef.current == null) {
-    historyRef.current = createBrowserHistory({ window });
-  }
-
-  let history = historyRef.current;
-  let [state, dispatch] = React.useReducer(
-    (_: Update, update: Update) => update,
-    {
-      action: history.action,
-      location: history.location,
-    }
-  );
-
-  React.useLayoutEffect(() => history.listen(dispatch), [history]);
-
   let entryContext = window.__remixContext;
   entryContext.manifest = window.__remixManifest;
   entryContext.routeModules = window.__remixRouteModules;
@@ -50,12 +40,29 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   entryContext.appState.trackBoundaries = false;
   entryContext.appState.trackCatchBoundaries = false;
 
+  if (!routerSingleton) {
+    let routes = createClientDataRoutes(
+      entryContext.manifest.routes,
+      entryContext.routeModules,
+      RemixRoute
+    );
+    let hydrationData = {
+      loaderData: entryContext.routeData,
+      actionData: entryContext.actionData,
+      // TODO: handle errors
+      errors: null,
+    };
+    routerSingleton = createBrowserRouter({
+      hydrationData,
+      window,
+      routes,
+    }).initialize();
+  }
+  let router = routerSingleton;
+
   return (
-    <RemixEntry
-      context={entryContext}
-      action={state.action}
-      location={state.location}
-      navigator={history}
-    />
+    <WithDataRouter router={router}>
+      <RemixEntry context={entryContext} />
+    </WithDataRouter>
   );
 }

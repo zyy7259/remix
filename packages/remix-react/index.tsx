@@ -4,12 +4,24 @@ export type {
   Location,
   NavigateFunction,
   Params,
+  Fetcher,
+  FormEncType,
+  FormMethod,
+  FormProps,
+  SubmitOptions,
+  SubmitFunction,
   Path,
 } from "react-router-dom";
 export {
+  // TODO: Add reloadDocument to react-router-dom <Form>
+  Form,
   Outlet,
+  useActionData,
+  useFormAction,
   useHref,
+  useLoaderData,
   useLocation,
+  useMatches,
   useNavigate,
   useNavigationType,
   useOutlet,
@@ -17,14 +29,11 @@ export {
   useParams,
   useResolvedPath,
   useSearchParams,
+  useSubmit,
 } from "react-router-dom";
 
 export type {
-  FetcherWithComponents,
-  FormProps,
   RouteMatch,
-  SubmitOptions,
-  SubmitFunction,
   RemixNavLinkProps as NavLinkProps,
   RemixLinkProps as LinkProps,
 } from "./components";
@@ -34,21 +43,13 @@ export {
   Scripts,
   Link,
   NavLink,
-  Form,
   PrefetchPageLinks,
   LiveReload,
-  useFormAction,
-  useSubmit,
-  useTransition,
   useFetcher,
   useFetchers,
-  useLoaderData,
-  useActionData,
+  useTransition,
   useBeforeUnload,
-  useMatches,
 } from "./components";
-
-export type { FormMethod, FormEncType } from "./data";
 
 export type { ThrownResponse } from "./errors";
 export { useCatch } from "./errorBoundaries";
@@ -56,9 +57,8 @@ export { useCatch } from "./errorBoundaries";
 export type { HtmlLinkDescriptor } from "./links";
 export type { ShouldReloadFunction, HtmlMetaDescriptor } from "./routeModules";
 
+// TODO: Update to wrap react-router-dom component
 export { ScrollRestoration } from "./scroll-restoration";
 
 export type { RemixServerProps } from "./server";
 export { RemixServer } from "./server";
-
-export type { Fetcher } from "./transition";
