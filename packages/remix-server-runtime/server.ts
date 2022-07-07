@@ -208,7 +208,8 @@ async function handleDocumentRequest({
   }
 
   // TODO: Handle this.  Can we just expose a status code on the static router
-  // state?
+  // state?  Or do not extract response data at all and return raw Responses on
+  // actionData/loaderData
   let notOkResponse = null;
   let responseStatusCode = appState.error
     ? 500

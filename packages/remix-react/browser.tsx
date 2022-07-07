@@ -60,6 +60,7 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   }
   let router = routerSingleton;
 
+  // TODO: Rename to DataRouterProvider since this isn't a HOC
   return (
     <WithDataRouter router={router}>
       <RemixEntry context={entryContext} />
