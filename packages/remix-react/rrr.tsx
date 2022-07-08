@@ -1,14 +1,19 @@
 import * as React from "react";
 import type { DataRouteObject } from "@remix-run/router";
+import { isRouteErrorResponse } from "@remix-run/router";
 import type { LoaderFunction, ActionFunction } from "react-router-dom";
+import { useRouteError, useLocation } from "react-router-dom";
 
 import type { RouteModules } from "./routeModules";
-import type {
-  EntryRoute,
-  RemixRouteComponentType,
-  RouteManifest,
-} from "./routes";
+import type { EntryRoute, RouteManifest } from "./routes";
 import { createAction, createLoader } from "./routes";
+import { RemixCatchBoundary, RemixErrorBoundary } from "./errorBoundaries";
+import {
+  RemixEntryContext,
+  RemixRoute,
+  useRemixEntryContext,
+} from "./components";
+import invariant from "./invariant";
 
 // TODO:
 // - Start removing things from RemixEntryContext in favor of using data router versions
@@ -29,8 +34,7 @@ import { createAction, createLoader } from "./routes";
 
 export function createClientDataRoute(
   entryRoute: EntryRoute,
-  routeModulesCache: RouteModules,
-  Component: RemixRouteComponentType
+  routeModulesCache: RouteModules
 ): DataRouteObject {
   let fetchLoader = createLoader(entryRoute, routeModulesCache);
   let loader: LoaderFunction = async ({ request, params }) => {
@@ -52,7 +56,8 @@ export function createClientDataRoute(
 
   return {
     caseSensitive: !!entryRoute.caseSensitive,
-    element: <Component id={entryRoute.id} />,
+    element: <RemixRoute id={entryRoute.id} />,
+    errorElement: <RemixRouteError id={entryRoute.id} />,
     id: entryRoute.id,
     path: entryRoute.path,
     index: entryRoute.index,
@@ -60,32 +65,60 @@ export function createClientDataRoute(
     action,
     // TODO: Implement this
     shouldRevalidate: undefined,
-    // TODO: Implement this
-    errorElement: undefined,
   };
 }
 
 export function createClientDataRoutes(
   routeManifest: RouteManifest<EntryRoute>,
   routeModulesCache: RouteModules,
-  Component: RemixRouteComponentType,
   parentId?: string
 ): DataRouteObject[] {
   return Object.keys(routeManifest)
     .filter((key) => routeManifest[key].parentId === parentId)
     .map((key) => {
-      let route = createClientDataRoute(
-        routeManifest[key],
-        routeModulesCache,
-        Component
-      );
+      let route = createClientDataRoute(routeManifest[key], routeModulesCache);
       let children = createClientDataRoutes(
         routeManifest,
         routeModulesCache,
-        Component,
         route.id
       );
       if (children.length > 0) route.children = children;
       return route;
     });
+}
+
+export function RemixRouteError({ id }: { id: string }) {
+  let { routeModules } = useRemixEntryContext();
+
+  // This checks prevent cryptic error messages such as: 'Cannot read properties of undefined (reading 'root')'
+  invariant(
+    routeModules,
+    "Cannot initialize 'routeModules'. This normally occurs when you have server code in your client modules.\n" +
+      "Check this link for more details:\nhttps://remix.run/pages/gotchas#server-code-in-client-bundles"
+  );
+
+  let error = useRouteError();
+  let location = useLocation();
+  let isCatch = isRouteErrorResponse(error);
+
+  let { CatchBoundary, ErrorBoundary } = routeModules[id];
+
+  if (isCatch && CatchBoundary) {
+    console.log("Rendering errorElement as a CatchBoundary", id, error);
+    return <RemixCatchBoundary component={CatchBoundary} catch={error} />;
+  }
+
+  if (!isCatch && ErrorBoundary) {
+    console.log("Rendering errorElement as an ErrorBoundary", id, error);
+    return (
+      <RemixErrorBoundary
+        location={location}
+        component={ErrorBoundary}
+        error={error}
+      />
+    );
+  }
+
+  console.log("Re-throwing error to higher Catch/Error Boundary", id);
+  throw error;
 }

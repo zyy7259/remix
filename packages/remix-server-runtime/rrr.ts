@@ -30,16 +30,17 @@ export function createServerDataRoute(
   return {
     caseSensitive: route.caseSensitive,
     children: createServerDataRoutes(manifest, loadContext, routeId),
-    element: route.module.default
-      ? React.createElement(route.module.default)
-      : null,
+    // TODO: We're on the server here and are currently framework agnostic.
+    // Add true here and then once we get into UI land we can adapt with the
+    // right components
+    element: route.module.default != null,
+    errorElement:
+      route.module.CatchBoundary != null || route.module.ErrorBoundary != null,
     id: route.id,
     index: route.index,
     path: route.path,
     loader,
     action,
-    // TODO: Implement!
-    errorElement: null,
     handle: route.module.handle,
     // TODO: Implement!
     shouldRevalidate: () => true,

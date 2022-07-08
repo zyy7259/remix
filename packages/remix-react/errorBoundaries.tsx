@@ -126,7 +126,6 @@ export function useCatch<
 }
 
 type RemixCatchBoundaryProps = React.PropsWithChildren<{
-  location: Location;
   component: CatchBoundaryComponent;
   catch?: ThrownResponse;
 }>;

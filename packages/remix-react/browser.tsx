@@ -43,14 +43,12 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   if (!routerSingleton) {
     let routes = createClientDataRoutes(
       entryContext.manifest.routes,
-      entryContext.routeModules,
-      RemixRoute
+      entryContext.routeModules
     );
     let hydrationData = {
       loaderData: entryContext.routeData,
       actionData: entryContext.actionData,
-      // TODO: handle errors
-      errors: null,
+      errors: entryContext.dataErrors,
     };
     routerSingleton = createBrowserRouter({
       hydrationData,

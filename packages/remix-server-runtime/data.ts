@@ -46,7 +46,9 @@ export async function callRouteAction({
 
     if (!isRedirectResponse(error)) {
       error.headers.set("X-Remix-Catch", "yes");
+      throw error;
     }
+
     result = error;
   }
 
@@ -82,6 +84,8 @@ export async function callRouteLoader({
   }
 
   let result;
+
+  // TODO: Do we even need to wrap this anymore?
   try {
     result = await loader({
       request: stripDataParam(stripIndexParam(request)),
@@ -95,7 +99,9 @@ export async function callRouteLoader({
 
     if (!isRedirectResponse(error)) {
       error.headers.set("X-Remix-Catch", "yes");
+      throw error;
     }
+
     result = error;
   }
 

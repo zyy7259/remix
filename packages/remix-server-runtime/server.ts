@@ -240,6 +240,7 @@ async function handleDocumentRequest({
     appState: appState,
     matches: createEntryMatches(renderableMatches, build.assets.routes),
     routeData: context.loaderData,
+    dataErrors: context.errors || undefined,
   };
 
   let entryContext: EntryContext = {
@@ -272,6 +273,12 @@ async function handleDocumentRequest({
     // render.
     appState.trackBoundaries = false;
     appState.error = await serializeError(error);
+    entryContext.dataErrors = {
+      [appState.renderBoundaryRouteId]: appState.error,
+    };
+    serverHandoff.dataErrors = {
+      [appState.renderBoundaryRouteId]: appState.error,
+    };
     entryContext.serverHandoffString = createServerHandoffString(serverHandoff);
 
     try {

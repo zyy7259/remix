@@ -25,9 +25,11 @@ export interface EntryContext {
   serverHandoffString?: string;
 
   // New fields for data router
+  // TODO: Can we clean this up a bit when we do the real RRR work
   dataRoutes: DataRouteObject[];
   dataLocation: Location;
   dataMatches: DataRouteMatch[];
+  dataErrors?: RouteData;
 }
 
 export interface AssetsManifest {

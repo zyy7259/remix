@@ -5,7 +5,7 @@ import type {
 } from "react";
 import * as React from "react";
 import type {
-  Fetcher as RouterFetcher,
+  DataRouteMatch,
   FormProps,
   LinkProps,
   Location,
@@ -81,7 +81,8 @@ export const RemixEntryContext = React.createContext<
   RemixEntryContextType | undefined
 >(undefined);
 
-function useRemixEntryContext(): RemixEntryContextType {
+// FIXME: Unexport this once RemixRouteError moves into this file
+export function useRemixEntryContext(): RemixEntryContextType {
   let context = React.useContext(RemixEntryContext);
   invariant(context, "You must render this element inside a <Remix> element");
   return context;
@@ -114,7 +115,7 @@ export function RemixEntry({
 
   let matches = React.useMemo(
     () =>
-      router.state.matches.map((match) => {
+      router.state.matches.map((match: DataRouteMatch) => {
         let clientMatch: BaseRouteMatch<ClientRoute> = {
           ...match,
           route: createClientRoute(
@@ -128,25 +129,23 @@ export function RemixEntry({
     [router, manifest, routeModules]
   );
 
-  // TODO: Handle errors
-  // let [clientState, setClientState] = React.useState(
-  //   entryComponentDidCatchEmulator
-  // );
+  // TODO: Validate that we still get root level render errors handled here
+  // and produce a full HTML document
 
   // If we tried to render and failed, and the app threw before rendering any
   // routes, get the error and pass it to the ErrorBoundary to emulate
   // `componentDidCatch`
-  // let ssrErrorBeforeRoutesRendered =
-  //   clientState.error &&
-  //   clientState.renderBoundaryRouteId === null &&
-  //   clientState.loaderBoundaryRouteId === null
-  //     ? deserializeError(clientState.error)
-  //     : undefined;
+  let ssrErrorBeforeRoutesRendered =
+    appState.error &&
+    appState.renderBoundaryRouteId === null &&
+    appState.loaderBoundaryRouteId === null
+      ? deserializeError(appState.error)
+      : undefined;
 
-  // let ssrCatchBeforeRoutesRendered =
-  //   clientState.catch && clientState.catchBoundaryRouteId === null
-  //     ? clientState.catch
-  //     : undefined;
+  let ssrCatchBeforeRoutesRendered =
+    appState.catch && appState.catchBoundaryRouteId === null
+      ? appState.catch
+      : undefined;
 
   return (
     <RemixEntryContext.Provider
@@ -161,8 +160,19 @@ export function RemixEntry({
         actionData,
       }}
     >
-      {/* TODO: Add back in error boundaries */}
-      <DataRouter />
+      <RemixErrorBoundary
+        location={entryContext.dataLocation}
+        component={RemixRootDefaultErrorBoundary}
+        error={ssrErrorBeforeRoutesRendered}
+      >
+        <RemixCatchBoundary
+          location={entryContext.dataLocation}
+          component={RemixRootDefaultCatchBoundary}
+          catch={ssrCatchBeforeRoutesRendered}
+        >
+          <DataRouter />
+        </RemixCatchBoundary>
+      </RemixErrorBoundary>
     </RemixEntryContext.Provider>
   );
 }
@@ -193,7 +203,6 @@ function DefaultRouteComponent({ id }: { id: string }): React.ReactElement {
 }
 
 export function RemixRoute({ id }: { id: string }) {
-  let location = useLocation();
   let { routeData, routeModules, appState } = useRemixEntryContext();
 
   // This checks prevent cryptic error messages such as: 'Cannot read properties of undefined (reading 'root')'
@@ -214,92 +223,19 @@ export function RemixRoute({ id }: { id: string }) {
 
   let context: RemixRouteContextType = { data, id };
 
-  if (CatchBoundary) {
-    // If we tried to render and failed, and this route threw the error, find it
-    // and pass it to the ErrorBoundary to emulate `componentDidCatch`
-    let maybeServerCaught =
-      appState.catch && appState.catchBoundaryRouteId === id
-        ? appState.catch
-        : undefined;
+  // TODO: Figure out if we still need these separate flags or if one would do?
+  console.log("rendering route id", id);
 
-    // This needs to run after we check for the error from a previous render,
-    // otherwise we will incorrectly render this boundary for a loader error
-    // deeper in the tree.
+  if (CatchBoundary) {
     if (appState.trackCatchBoundaries) {
       appState.catchBoundaryRouteId = id;
     }
-
-    context = maybeServerCaught
-      ? {
-          id,
-          get data() {
-            console.error("You cannot `useLoaderData` in a catch boundary.");
-            return undefined;
-          },
-        }
-      : { id, data };
-
-    element = (
-      <RemixCatchBoundary
-        location={location}
-        component={CatchBoundary}
-        catch={maybeServerCaught}
-      >
-        {element}
-      </RemixCatchBoundary>
-    );
   }
 
-  // Only wrap in error boundary if the route defined one, otherwise let the
-  // error bubble to the parent boundary. We could default to using error
-  // boundaries around every route, but now if the app doesn't want users
-  // seeing the default Remix ErrorBoundary component, they *must* define an
-  // error boundary for *every* route and that would be annoying. Might as
-  // well make it required at that point.
-  //
-  // By conditionally wrapping like this, we allow apps to define a top level
-  // ErrorBoundary component and be done with it. Then, if they want to, they
-  // can add more specific boundaries by exporting ErrorBoundary components
-  // for whichever routes they please.
-  //
-  // NOTE: this kind of logic will move into React Router
-
   if (ErrorBoundary) {
-    // If we tried to render and failed, and this route threw the error, find it
-    // and pass it to the ErrorBoundary to emulate `componentDidCatch`
-    let maybeServerRenderError =
-      appState.error &&
-      (appState.renderBoundaryRouteId === id ||
-        appState.loaderBoundaryRouteId === id)
-        ? deserializeError(appState.error)
-        : undefined;
-
-    // This needs to run after we check for the error from a previous render,
-    // otherwise we will incorrectly render this boundary for a loader error
-    // deeper in the tree.
     if (appState.trackBoundaries) {
       appState.renderBoundaryRouteId = id;
     }
-
-    context = maybeServerRenderError
-      ? {
-          id,
-          get data() {
-            console.error("You cannot `useLoaderData` in an error boundary.");
-            return undefined;
-          },
-        }
-      : { id, data };
-
-    element = (
-      <RemixErrorBoundary
-        location={location}
-        component={ErrorBoundary}
-        error={maybeServerRenderError}
-      >
-        {element}
-      </RemixErrorBoundary>
-    );
   }
 
   // It's important for the route context to be above the error boundary so that
