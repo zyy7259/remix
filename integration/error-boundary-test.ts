@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import { createAppFixture, createFixture, js } from "./helpers/create-fixture";
 import type { Fixture, AppFixture } from "./helpers/create-fixture";
-import { PlaywrightFixture } from "./helpers/playwright-fixture";
+import { PlaywrightFixture, selectHtml } from "./helpers/playwright-fixture";
 
 test.describe("ErrorBoundary", () => {
   let fixture: Fixture;
@@ -84,24 +84,36 @@ test.describe("ErrorBoundary", () => {
                   </button>
                 </Form>
 
-                <Link to="${HAS_BOUNDARY_LOADER}">
-                  ${HAS_BOUNDARY_LOADER}
-                </Link>
-                <Link to="${NO_BOUNDARY_LOADER}">
-                  ${NO_BOUNDARY_LOADER}
-                </Link>
-                <Link to="${HAS_BOUNDARY_RENDER}">
-                  ${HAS_BOUNDARY_RENDER}
-                </Link>
-                <Link to="${NO_BOUNDARY_RENDER}">
-                  ${NO_BOUNDARY_RENDER}
-                </Link>
-                <Link to="${META_ERROR}">
-                  ${META_ERROR}
-                </Link>
-                <Link to="${LINKS_ERROR}">
-                  ${LINKS_ERROR}
-                </Link>
+                <p>
+                  <Link to="${HAS_BOUNDARY_LOADER}">
+                    ${HAS_BOUNDARY_LOADER}
+                  </Link>
+                </p>
+                <p>
+                  <Link to="${NO_BOUNDARY_LOADER}">
+                    ${NO_BOUNDARY_LOADER}
+                  </Link>
+                </p>
+                <p>
+                  <Link to="${HAS_BOUNDARY_RENDER}">
+                    ${HAS_BOUNDARY_RENDER}
+                  </Link>
+                </p>
+                <p>
+                  <Link to="${NO_BOUNDARY_RENDER}">
+                    ${NO_BOUNDARY_RENDER}
+                  </Link>
+                </p>
+                <p>
+                  <Link to="${META_ERROR}">
+                    ${META_ERROR}
+                  </Link>
+                </p>
+                <p>
+                  <Link to="${LINKS_ERROR}">
+                    ${LINKS_ERROR}
+                  </Link>
+                </p>
               </div>
             )
           }
@@ -416,6 +428,8 @@ test.describe("ErrorBoundary", () => {
     let NO_ROOT_BOUNDARY_LOADER = "/loader-bad";
     let NO_ROOT_BOUNDARY_ACTION = "/action-bad";
     let NO_ROOT_BOUNDARY_ACTION_RETURN = "/action-no-return";
+    let META_ERROR = "/meta-error";
+    let LINKS_ERROR = "/links-error";
 
     test.beforeAll(async () => {
       fixture = await createFixture({
@@ -454,6 +468,16 @@ test.describe("ErrorBoundary", () => {
                       Action no return
                     </button>
                   </Form>
+                  <p>
+                    <Link to="${META_ERROR}">
+                      ${META_ERROR}
+                    </Link>
+                  </p>
+                  <p>
+                    <Link to="${LINKS_ERROR}">
+                      ${LINKS_ERROR}
+                    </Link>
+                  </p>
                 </div>
               )
             }
@@ -505,6 +529,26 @@ test.describe("ErrorBoundary", () => {
               )
             }
           `,
+
+          [`app/routes${LINKS_ERROR}.jsx`]: js`
+          export function links() {
+            throw new Error("Kaboom!")
+          }
+
+          export default function () {
+            return <div/>
+          }
+        `,
+
+          [`app/routes${META_ERROR}.jsx`]: js`
+            export function meta() {
+              throw new Error("Kaboom!")
+            }
+
+            export default function () {
+              return <div/>
+            }
+          `,
         },
       });
       appFixture = await createAppFixture(fixture);
@@ -533,6 +577,40 @@ test.describe("ErrorBoundary", () => {
       let app = new PlaywrightFixture(appFixture, page);
       await app.goto("/");
       await app.clickSubmitButton(NO_ROOT_BOUNDARY_ACTION_RETURN);
+      expect(await app.getHtml("h1")).toMatch(INTERNAL_ERROR_BOUNDARY_HEADING);
+    });
+
+    test("ssr renders error boundary when meta throws", async () => {
+      let res = await fixture.requestDocument(META_ERROR);
+      expect(res.status).toBe(500);
+      expect(selectHtml(await res.text(), "h1")).toMatch(
+        INTERNAL_ERROR_BOUNDARY_HEADING
+      );
+    });
+
+    test("script transition renders error boundary when meta throws", async ({
+      page,
+    }) => {
+      let app = new PlaywrightFixture(appFixture, page);
+      await app.goto("/");
+      await app.clickLink(META_ERROR);
+      expect(await app.getHtml("h1")).toMatch(INTERNAL_ERROR_BOUNDARY_HEADING);
+    });
+
+    test("ssr renders error boundary when links function throws", async () => {
+      let res = await fixture.requestDocument(LINKS_ERROR);
+      expect(res.status).toBe(500);
+      expect(selectHtml(await res.text(), "h1")).toMatch(
+        INTERNAL_ERROR_BOUNDARY_HEADING
+      );
+    });
+
+    test("script transition renders error boundary when links function throws", async ({
+      page,
+    }) => {
+      let app = new PlaywrightFixture(appFixture, page);
+      await app.goto("/");
+      await app.clickLink(LINKS_ERROR);
       expect(await app.getHtml("h1")).toMatch(INTERNAL_ERROR_BOUNDARY_HEADING);
     });
   });
