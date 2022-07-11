@@ -2,6 +2,7 @@
 // and leverage `react-router` here instead
 import type { Location } from "history";
 import React, { useContext } from "react";
+import { isRouteErrorResponse } from "react-router-dom";
 
 import type {
   CatchBoundaryComponent,
@@ -13,6 +14,7 @@ type RemixErrorBoundaryProps = React.PropsWithChildren<{
   location: Location;
   component: ErrorBoundaryComponent;
   error?: Error;
+  handleCatch?: boolean;
 }>;
 
 type RemixErrorBoundaryState = {
@@ -60,6 +62,22 @@ export class RemixErrorBoundary extends React.Component<
 
   render() {
     if (this.state.error) {
+      if (isRouteErrorResponse(this.state.error) && this.props.handleCatch) {
+        // Because the router is unaware of the distinction between error+catch
+        // responses, we have to handle that at runtime.  If we find a thrown
+        // Response in a component that exports an ErrorBoundary but not a
+        // CatchBoundary (and thus it has an errorElement) - we detect that
+        // the error is a Response and re-throw it.  This opens up the
+        // possibility of never finding a CatchBoundary and then we need to use
+        // The root ErrorBoundary to handle the runtime `catch` value and render
+        // it accordingly
+        return (
+          <RemixCatchBoundary
+            component={RemixRootDefaultCatchBoundary}
+            catch={this.state.error}
+          />
+        );
+      }
       return <this.props.component error={this.state.error} />;
     } else {
       return this.props.children;

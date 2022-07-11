@@ -1,13 +1,19 @@
-import type { DataRouteObject, StaticHandler } from "@remix-run/router";
+import type {
+  DataRouteObject,
+  ErrorResponse,
+  StaticHandler,
+  StaticHandlerContext,
+} from "@remix-run/router";
 import { isRouteErrorResponse } from "@remix-run/router";
 import { createStaticHandler } from "@remix-run/router";
+import e from "express";
 
 import type { AppLoadContext } from "./data";
 import type { AppState } from "./errors";
+import { serializeCatch, serializeError } from "./errors";
 import type { HandleDataRequestFunction, ServerBuild } from "./build";
 import type { EntryContext } from "./entry";
 import { createEntryMatches, createEntryRouteModules } from "./entry";
-import { serializeError } from "./errors";
 import { getDocumentHeaders } from "./headers";
 import { ServerMode, isServerMode } from "./mode";
 import type { RouteMatch } from "./routeMatching";
@@ -16,6 +22,7 @@ import type { ServerRoute } from "./routes";
 import {
   convertRouterMatchesToServerMatches,
   createServerDataRoutes,
+  findParentBoundary,
 } from "./rrr";
 import { createRoutes } from "./routes";
 import { json, isRedirectResponse } from "./responses";
@@ -190,34 +197,47 @@ async function handleDocumentRequest({
   }
 
   let appState: AppState = {
-    trackBoundaries: true,
-    trackCatchBoundaries: true,
-    catchBoundaryRouteId: null,
-    renderBoundaryRouteId: null,
-    loaderBoundaryRouteId: null,
-    error: undefined,
-    catch: undefined,
+    unhandledBoundaryError: null,
+    deepestCatchBoundaryId: null,
+    deepestErrorBoundaryId: null,
   };
 
-  if (context.errors) {
-    // TODO: Differentiate catch versus error here
-    let [routeId, error] = Object.entries(context.errors)[0];
-    appState.trackCatchBoundaries = false;
-    appState.catchBoundaryRouteId = routeId;
-    appState.catch = error;
-  }
+  // TODO: Handle response statuses from loaders.  Can we just expose  a status
+  // code on the static router state?  Or do not extract response data at all
+  // and return raw Responses on actionData/loaderData.  Note that loader
+  // response status codes should override the catch status code.  Or are they
+  // actually one in the same since catches were not thrown before?
+  let responseStatusCode = 200;
 
-  // TODO: Handle this.  Can we just expose a status code on the static router
-  // state?  Or do not extract response data at all and return raw Responses on
-  // actionData/loaderData
-  let notOkResponse = null;
-  let responseStatusCode = appState.error
-    ? 500
-    : typeof notOkResponse === "number"
-    ? notOkResponse
-    : appState.catch
-    ? appState.catch.status
-    : 200;
+  // Re-generate a remix-friendly context.errors structure.  The Router only
+  // handles generic errors and does not distinguish error versus catch.  We
+  // may have a thrown response tagged to a route that only exports an
+  // ErrorBoundary or vice versa.  So we adjust here and ensure that
+  // data-loading errors are properly associated with routes that have the right
+  // type of boundaries.
+  if (context.errors) {
+    let errors: Record<string, any> = {};
+    for (let routeId of Object.keys(context.errors)) {
+      let error = context.errors[routeId];
+      let handlingRouteId = findParentBoundary(build.routes, routeId, error);
+      if (handlingRouteId) {
+        errors[handlingRouteId] = error;
+      } else {
+        appState.unhandledBoundaryError = error;
+      }
+      // If mwe encounter an error we stick with 500, otherwise take the catch
+      // response code
+      responseStatusCode =
+        responseStatusCode === 500
+          ? responseStatusCode
+          : !isRouteErrorResponse(error)
+          ? 500
+          : responseStatusCode || error.status;
+    }
+    // Null out context.errors if we have an unhandled errors since we won't be
+    // rendering anything beyond the root boundary anyway
+    context.errors = appState.unhandledBoundaryError ? null : errors;
+  }
 
   let matches = convertRouterMatchesToServerMatches(
     context.matches,
@@ -235,14 +255,12 @@ async function handleDocumentRequest({
     undefined
   );
 
-  let serverHandoff = {
-    actionData: context.actionData || undefined,
-    appState: appState,
-    matches: createEntryMatches(renderableMatches, build.assets.routes),
-    routeData: context.loaderData,
-    dataErrors: context.errors || undefined,
-  };
-
+  let serverHandoff = getServerHandoff(
+    build,
+    context,
+    appState,
+    renderableMatches
+  );
   let entryContext: EntryContext = {
     ...serverHandoff,
     manifest: build.assets,
@@ -251,6 +269,7 @@ async function handleDocumentRequest({
     dataRoutes,
     dataLocation: context.location,
     dataMatches: context.matches,
+    dataErrors: context.errors || undefined,
   };
 
   let handleDocumentRequest = build.entry.module.default;
@@ -265,20 +284,25 @@ async function handleDocumentRequest({
     console.log("caught error in entry.server handleDocumentRequest", error);
     responseStatusCode = 500;
 
-    // Go again, this time with the componentDidCatch emulation. As it rendered
-    // last time we mutated `componentDidCatch.routeId` for the last rendered
-    // route, now we know where to render the error boundary (feels a little
-    // hacky but that's how hooks work). This tells the emulator to stop
-    // tracking the `routeId` as we render because we already have an error to
-    // render.
-    appState.trackBoundaries = false;
-    appState.error = await serializeError(error);
-    entryContext.dataErrors = {
-      [appState.renderBoundaryRouteId]: appState.error,
-    };
-    serverHandoff.dataErrors = {
-      [appState.renderBoundaryRouteId]: appState.error,
-    };
+    if (appState.deepestErrorBoundaryId) {
+      console.log("Handling at boundary", appState.deepestErrorBoundaryId);
+      context.errors = {
+        [appState.deepestErrorBoundaryId]: error,
+      };
+      entryContext.dataErrors = context.errors;
+    } else {
+      console.log("No boundary found - handling at default boundary");
+      appState.unhandledBoundaryError = error;
+      context.errors = null;
+      entryContext.dataErrors = undefined;
+    }
+
+    let serverHandoff = getServerHandoff(
+      build,
+      context,
+      appState,
+      renderableMatches
+    );
     entryContext.serverHandoffString = createServerHandoffString(serverHandoff);
 
     try {
@@ -395,4 +419,22 @@ function getRenderableMatches(
   });
 
   return matches.slice(0, lastRenderableIndex + 1);
+}
+
+function getServerHandoff(
+  build: ServerBuild,
+  context: StaticHandlerContext,
+  appState: AppState,
+  renderableMatches: RouteMatch<ServerRoute>[]
+): Pick<
+  EntryContext,
+  "actionData" | "appState" | "matches" | "routeData" | "dataErrors"
+> {
+  return {
+    actionData: context.actionData || undefined,
+    appState,
+    matches: createEntryMatches(renderableMatches, build.assets.routes),
+    routeData: context.loaderData,
+    dataErrors: context.errors || undefined,
+  };
 }

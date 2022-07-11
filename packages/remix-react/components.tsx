@@ -30,7 +30,7 @@ import {
 
 import type { AppData } from "./data";
 import type { EntryContext, AssetsManifest } from "./entry";
-import type { AppState, SerializedError } from "./errors";
+import type { AppState, SerializedError, ThrownResponse } from "./errors";
 import {
   RemixRootDefaultErrorBoundary,
   RemixErrorBoundary,
@@ -129,23 +129,19 @@ export function RemixEntry({
     [router, manifest, routeModules]
   );
 
-  // TODO: Validate that we still get root level render errors handled here
-  // and produce a full HTML document
-
   // If we tried to render and failed, and the app threw before rendering any
   // routes, get the error and pass it to the ErrorBoundary to emulate
   // `componentDidCatch`
-  let ssrErrorBeforeRoutesRendered =
-    appState.error &&
-    appState.renderBoundaryRouteId === null &&
-    appState.loaderBoundaryRouteId === null
-      ? deserializeError(appState.error)
-      : undefined;
+  let ssrErrorBeforeRoutesRendered: Error | undefined;
+  let ssrCatchBeforeRoutesRendered: ThrownResponse | undefined;
 
-  let ssrCatchBeforeRoutesRendered =
-    appState.catch && appState.catchBoundaryRouteId === null
-      ? appState.catch
-      : undefined;
+  if (appState.unhandledBoundaryError) {
+    if (appState.unhandledBoundaryError?.status) {
+      ssrCatchBeforeRoutesRendered = appState.unhandledBoundaryError;
+    } else {
+      ssrErrorBeforeRoutesRendered = appState.unhandledBoundaryError;
+    }
+  }
 
   return (
     <RemixEntryContext.Provider
@@ -161,12 +157,12 @@ export function RemixEntry({
       }}
     >
       <RemixErrorBoundary
-        location={entryContext.dataLocation}
+        location={dataRouterContext.router.state.location}
         component={RemixRootDefaultErrorBoundary}
         error={ssrErrorBeforeRoutesRendered}
+        handleCatch={true}
       >
         <RemixCatchBoundary
-          location={entryContext.dataLocation}
           component={RemixRootDefaultCatchBoundary}
           catch={ssrCatchBeforeRoutesRendered}
         >
@@ -227,15 +223,11 @@ export function RemixRoute({ id }: { id: string }) {
   console.log("rendering route id", id);
 
   if (CatchBoundary) {
-    if (appState.trackCatchBoundaries) {
-      appState.catchBoundaryRouteId = id;
-    }
+    appState.deepestCatchBoundaryId = id;
   }
 
   if (ErrorBoundary) {
-    if (appState.trackBoundaries) {
-      appState.renderBoundaryRouteId = id;
-    }
+    appState.deepestErrorBoundaryId = id;
   }
 
   // It's important for the route context to be above the error boundary so that

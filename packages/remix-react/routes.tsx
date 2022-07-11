@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
 import * as React from "react";
 import type { ActionFunction, LoaderFunction, Params } from "react-router";
+import { ErrorResponse } from "@remix-run/router";
 
 import type { RouteModules, ShouldReloadFunction } from "./routeModules";
 import { loadRouteModule } from "./routeModules";
@@ -158,9 +159,8 @@ export function createLoader(route: EntryRoute, routeModules: RouteModules) {
       let redirect = await checkRedirect(result);
       if (redirect) return redirect;
 
-      // TODO: Do we need to extract here or can we leverage ErrorResponse?
       if (isCatchResponse(result)) {
-        throw new CatchValue(
+        throw new ErrorResponse(
           result.status,
           result.statusText,
           await extractData(result)
@@ -196,9 +196,8 @@ export function createAction(route: EntryRoute, routeModules: RouteModules) {
 
     await loadRouteModuleWithBlockingLinks(route, routeModules);
 
-    // TODO: Do we need to extract here or can we leverage ErrorResponse?
     if (isCatchResponse(result)) {
-      throw new CatchValue(
+      throw new ErrorResponse(
         result.status,
         result.statusText,
         await extractData(result)

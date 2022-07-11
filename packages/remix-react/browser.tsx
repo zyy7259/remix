@@ -1,11 +1,12 @@
 import type { Router as DataRouter } from "@remix-run/router";
-import { createBrowserRouter } from "@remix-run/router";
+import { createBrowserRouter, ErrorResponse } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
 import { WithDataRouter } from "react-router-dom";
 
 import { RemixEntry, RemixRoute } from "./components";
 import type { EntryContext } from "./entry";
+import type { SerializedError, ThrownResponse } from "./errors";
 import type { RouteModules } from "./routeModules";
 import { createClientDataRoutes } from "./rrr";
 
@@ -34,11 +35,17 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   let entryContext = window.__remixContext;
   entryContext.manifest = window.__remixManifest;
   entryContext.routeModules = window.__remixRouteModules;
-  // In the browser, we don't need this because a) in the case of loader
-  // errors we already know the order and b) in the case of render errors
-  // React knows the order and handles error boundaries normally.
-  entryContext.appState.trackBoundaries = false;
-  entryContext.appState.trackCatchBoundaries = false;
+
+  // Deserialize errors and catch
+  if (entryContext.dataErrors) {
+    let errors: Record<string, any> = {};
+    for (let routeId of Object.keys(entryContext.dataErrors)) {
+      let error = entryContext.dataErrors[routeId];
+      errors[routeId] =
+        "status" in error ? deserializeCatch(error) : deserializeError(error);
+    }
+    entryContext.dataErrors = errors;
+  }
 
   if (!routerSingleton) {
     let routes = createClientDataRoutes(
@@ -64,4 +71,16 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
       <RemixEntry context={entryContext} />
     </WithDataRouter>
   );
+}
+
+// TODO: Duped from components.tsx
+function deserializeError(data: SerializedError): Error {
+  let error = new Error(data.message);
+  error.stack = data.stack;
+  return error;
+}
+
+function deserializeCatch(caught: any): ErrorResponse {
+  let { status, statusText, data } = caught;
+  return new ErrorResponse(status, statusText, data);
 }

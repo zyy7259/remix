@@ -5,6 +5,7 @@ import type {
   DataRouteObject,
   LoaderFunctionArgs,
 } from "@remix-run/router";
+import { isRouteErrorResponse } from "@remix-run/router";
 import { invariant } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
@@ -12,6 +13,7 @@ import { callRouteAction, callRouteLoader } from "./data";
 import type { ServerRoute, ServerRouteManifest } from "./routes";
 import { createRoutes } from "./routes";
 import type { RouteMatch } from "./routeMatching";
+import { ServerBuild } from "./build";
 
 export function createServerDataRoute(
   routeId: string,
@@ -78,4 +80,23 @@ export function convertRouterMatchesToServerMatches(
     return serverMatch;
   });
   return matches;
+}
+
+export function findParentBoundary(
+  routes: ServerRouteManifest,
+  routeId: string,
+  error: any
+): string | null {
+  if (!routeId || !routes[routeId]) {
+    return null;
+  }
+  let route = routes[routeId];
+  let isCatch = isRouteErrorResponse(error);
+  if (isCatch && route.module.CatchBoundary) {
+    return routeId;
+  }
+  if (!isCatch && route.module.ErrorBoundary) {
+    return routeId;
+  }
+  return findParentBoundary(routes, route.parentId, error);
 }

@@ -8,11 +8,7 @@ import type { RouteModules } from "./routeModules";
 import type { EntryRoute, RouteManifest } from "./routes";
 import { createAction, createLoader } from "./routes";
 import { RemixCatchBoundary, RemixErrorBoundary } from "./errorBoundaries";
-import {
-  RemixEntryContext,
-  RemixRoute,
-  useRemixEntryContext,
-} from "./components";
+import { RemixRoute, useRemixEntryContext } from "./components";
 import invariant from "./invariant";
 
 // TODO:

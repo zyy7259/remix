@@ -1,14 +1,9 @@
 import type { AppData } from "./data";
 
 export interface AppState {
-  error?: SerializedError;
-  catch?: ThrownResponse;
-  catchBoundaryRouteId: string | null;
-  loaderBoundaryRouteId: string | null;
-  // `null` means the app layout threw before any routes rendered
-  renderBoundaryRouteId: string | null;
-  trackBoundaries: boolean;
-  trackCatchBoundaries: boolean;
+  unhandledBoundaryError: SerializedError | ThrownResponse | null;
+  deepestCatchBoundaryId: null;
+  deepestErrorBoundaryId: null;
 }
 
 export interface ThrownResponse<

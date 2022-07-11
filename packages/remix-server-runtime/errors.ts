@@ -40,15 +40,12 @@
  * line.
  */
 
+import type { ErrorResponse } from "@remix-run/router";
+
 export interface AppState {
-  error?: SerializedError;
-  catch?: ThrownResponse;
-  catchBoundaryRouteId: string | null;
-  loaderBoundaryRouteId: string | null;
-  // `null` means the app layout threw before any routes rendered
-  renderBoundaryRouteId: string | null;
-  trackBoundaries: boolean;
-  trackCatchBoundaries: boolean;
+  unhandledBoundaryError: Error | ThrownResponse | null;
+  deepestCatchBoundaryId: null;
+  deepestErrorBoundaryId: null;
 }
 
 export interface ThrownResponse<T = any> {
@@ -62,9 +59,17 @@ export interface SerializedError {
   stack?: string;
 }
 
-export async function serializeError(error: Error): Promise<SerializedError> {
+export function serializeError(error: Error): SerializedError {
   return {
     message: error.message,
     stack: error.stack,
+  };
+}
+
+export function serializeCatch(error: ErrorResponse): ThrownResponse {
+  return {
+    data: error.data,
+    status: error.status,
+    statusText: error.statusText,
   };
 }
