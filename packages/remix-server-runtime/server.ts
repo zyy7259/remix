@@ -5,7 +5,7 @@ import type {
   StaticHandlerContext,
 } from "@remix-run/router";
 import { isRouteErrorResponse } from "@remix-run/router";
-import { createStaticHandler } from "@remix-run/router";
+import { unstable_createStaticHandler } from "@remix-run/router";
 import e from "express";
 
 import type { AppLoadContext } from "./data";
@@ -49,9 +49,9 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let url = new URL(request.url);
     let matches = matchServerRoutes(routes, url.pathname);
 
-    let { dataRoutes, query, queryRoute } = createStaticHandler({
-      routes: createServerDataRoutes(build.routes, loadContext),
-    });
+    let serverRoutes = createServerDataRoutes(build.routes, loadContext);
+    let { dataRoutes, query, queryRoute } =
+      unstable_createStaticHandler(serverRoutes);
 
     let response: Response;
     if (url.searchParams.has("_data")) {

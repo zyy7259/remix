@@ -2,7 +2,7 @@ import type { Router as DataRouter } from "@remix-run/router";
 import { createBrowserRouter, ErrorResponse } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
-import { WithDataRouter } from "react-router-dom";
+import { DataRouterProvider } from "react-router-dom";
 
 import { RemixEntry, RemixRoute } from "./components";
 import type { EntryContext } from "./entry";
@@ -65,11 +65,10 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   }
   let router = routerSingleton;
 
-  // TODO: Rename to DataRouterProvider since this isn't a HOC
   return (
-    <WithDataRouter router={router}>
+    <DataRouterProvider router={router}>
       <RemixEntry context={entryContext} />
-    </WithDataRouter>
+    </DataRouterProvider>
   );
 }
 
