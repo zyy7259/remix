@@ -202,13 +202,6 @@ async function handleDocumentRequest({
     deepestErrorBoundaryId: null,
   };
 
-  // TODO: Handle response statuses from loaders.  Can we just expose  a status
-  // code on the static router state?  Or do not extract response data at all
-  // and return raw Responses on actionData/loaderData.  Note that loader
-  // response status codes should override the catch status code.  Or are they
-  // actually one in the same since catches were not thrown before?
-  let responseStatusCode = 200;
-
   // Re-generate a remix-friendly context.errors structure.  The Router only
   // handles generic errors and does not distinguish error versus catch.  We
   // may have a thrown response tagged to a route that only exports an
@@ -225,15 +218,8 @@ async function handleDocumentRequest({
       } else {
         appState.unhandledBoundaryError = error;
       }
-      // If mwe encounter an error we stick with 500, otherwise take the catch
-      // response code
-      responseStatusCode =
-        responseStatusCode === 500
-          ? responseStatusCode
-          : !isRouteErrorResponse(error)
-          ? 500
-          : responseStatusCode || error.status;
     }
+
     // Null out context.errors if we have an unhandled errors since we won't be
     // rendering anything beyond the root boundary anyway
     context.errors = appState.unhandledBoundaryError ? null : errors;
@@ -245,13 +231,10 @@ async function handleDocumentRequest({
   );
   let renderableMatches = getRenderableMatches(matches, appState) || [];
 
-  // TODO: handle results here.  For static handlers do we want to not unwrap
-  // any responses up front?  We can process them as needed and then unwrap
-  // after this?
   let responseHeaders = getDocumentHeaders(
     build,
     renderableMatches,
-    {},
+    context.headers,
     undefined
   );
 
@@ -276,13 +259,12 @@ async function handleDocumentRequest({
   try {
     return await handleDocumentRequest(
       request,
-      responseStatusCode,
+      context.statusCode,
       responseHeaders,
       entryContext
     );
   } catch (error: any) {
     console.log("caught error in entry.server handleDocumentRequest", error);
-    responseStatusCode = 500;
 
     if (appState.deepestErrorBoundaryId) {
       console.log("Handling at boundary", appState.deepestErrorBoundaryId);
@@ -308,7 +290,7 @@ async function handleDocumentRequest({
     try {
       return await handleDocumentRequest(
         request,
-        responseStatusCode,
+        500,
         responseHeaders,
         entryContext
       );
