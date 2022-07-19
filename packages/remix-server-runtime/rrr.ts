@@ -1,19 +1,13 @@
-import * as React from "react";
 import type {
   ActionFunctionArgs,
-  DataRouteMatch,
   DataRouteObject,
   LoaderFunctionArgs,
 } from "@remix-run/router";
 import { isRouteErrorResponse } from "@remix-run/router";
-import { invariant } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
 import { callRouteAction, callRouteLoader } from "./data";
 import type { ServerRoute, ServerRouteManifest } from "./routes";
-import { createRoutes } from "./routes";
-import type { RouteMatch } from "./routeMatching";
-import { ServerBuild } from "./build";
 
 export function createServerDataRoute(
   routeId: string,
@@ -61,30 +55,9 @@ export function createServerDataRoutes(
     );
 }
 
-export function convertRouterMatchesToServerMatches(
-  routerMatches: DataRouteMatch[],
-  routes: ServerRouteManifest
-): RouteMatch<ServerRoute>[] {
-  let matches: RouteMatch<ServerRoute>[] = routerMatches.map((match, index) => {
-    let parentId = index > 0 ? routerMatches[index - 1].route.id : undefined;
-    let serverRoute = createRoutes(routes, parentId).find(
-      (r) => r.id === match.route.id
-    );
-    // TODO: clean this up
-    invariant(serverRoute, "Couldn't find server route");
-    let serverMatch: RouteMatch<ServerRoute> = {
-      params: match.params,
-      pathname: match.pathname,
-      route: serverRoute,
-    };
-    return serverMatch;
-  });
-  return matches;
-}
-
 export function findParentBoundary(
   routes: ServerRouteManifest,
-  routeId: string,
+  routeId: string | undefined,
   error: any
 ): string | null {
   if (!routeId || !routes[routeId]) {

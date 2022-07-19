@@ -18,7 +18,6 @@ import type { RouteModules, EntryRouteModule } from "./routeModules";
 export interface EntryContext {
   appState: AppState;
   manifest: AssetsManifest;
-  matches: RouteMatch<EntryRoute>[];
   routeData: RouteData;
   actionData?: RouteData;
   routeModules: RouteModules<EntryRouteModule>;

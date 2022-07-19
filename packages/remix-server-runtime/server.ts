@@ -1,29 +1,23 @@
 import type {
   DataRouteObject,
-  ErrorResponse,
   StaticHandler,
   StaticHandlerContext,
 } from "@remix-run/router";
-import { isRouteErrorResponse } from "@remix-run/router";
-import { unstable_createStaticHandler } from "@remix-run/router";
-import e from "express";
+import {
+  isRouteErrorResponse,
+  unstable_createStaticHandler,
+} from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
 import type { AppState } from "./errors";
-import { serializeCatch, serializeError } from "./errors";
+import { serializeError } from "./errors";
 import type { HandleDataRequestFunction, ServerBuild } from "./build";
 import type { EntryContext } from "./entry";
-import { createEntryMatches, createEntryRouteModules } from "./entry";
+import { createEntryRouteModules } from "./entry";
 import { getDocumentHeaders } from "./headers";
 import { ServerMode, isServerMode } from "./mode";
-import type { RouteMatch } from "./routeMatching";
 import { matchServerRoutes } from "./routeMatching";
-import type { ServerRoute } from "./routes";
-import {
-  convertRouterMatchesToServerMatches,
-  createServerDataRoutes,
-  findParentBoundary,
-} from "./rrr";
+import { createServerDataRoutes, findParentBoundary } from "./rrr";
 import { createRoutes } from "./routes";
 import { json, isRedirectResponse } from "./responses";
 import { createServerHandoffString } from "./serverHandoff";
@@ -225,25 +219,9 @@ async function handleDocumentRequest({
     context.errors = appState.unhandledBoundaryError ? null : errors;
   }
 
-  let matches = convertRouterMatchesToServerMatches(
-    context.matches,
-    build.routes
-  );
-  let renderableMatches = getRenderableMatches(matches, appState) || [];
+  let responseHeaders = getDocumentHeaders(build, context);
 
-  let responseHeaders = getDocumentHeaders(
-    build,
-    renderableMatches,
-    context.headers,
-    undefined
-  );
-
-  let serverHandoff = getServerHandoff(
-    build,
-    context,
-    appState,
-    renderableMatches
-  );
+  let serverHandoff = getServerHandoff(context, appState);
   let entryContext: EntryContext = {
     ...serverHandoff,
     manifest: build.assets,
@@ -279,12 +257,7 @@ async function handleDocumentRequest({
       entryContext.dataErrors = undefined;
     }
 
-    let serverHandoff = getServerHandoff(
-      build,
-      context,
-      appState,
-      renderableMatches
-    );
+    let serverHandoff = getServerHandoff(context, appState);
     entryContext.serverHandoffString = createServerHandoffString(serverHandoff);
 
     try {
@@ -372,50 +345,13 @@ async function errorBoundaryError(error: Error, status: number) {
   });
 }
 
-// This prevents `<Outlet/>` from rendering anything below where the error threw
-// TODO: maybe do this in <RemixErrorBoundary + context>
-function getRenderableMatches(
-  matches: RouteMatch<ServerRoute>[] | null,
-  appState: AppState
-) {
-  if (!matches) {
-    return null;
-  }
-
-  // no error, no worries
-  if (!appState.catch && !appState.error) {
-    return matches;
-  }
-
-  let lastRenderableIndex: number = -1;
-
-  matches.forEach((match, index) => {
-    let id = match.route.id;
-    if (
-      appState.renderBoundaryRouteId === id ||
-      appState.loaderBoundaryRouteId === id ||
-      appState.catchBoundaryRouteId === id
-    ) {
-      lastRenderableIndex = index;
-    }
-  });
-
-  return matches.slice(0, lastRenderableIndex + 1);
-}
-
 function getServerHandoff(
-  build: ServerBuild,
   context: StaticHandlerContext,
-  appState: AppState,
-  renderableMatches: RouteMatch<ServerRoute>[]
-): Pick<
-  EntryContext,
-  "actionData" | "appState" | "matches" | "routeData" | "dataErrors"
-> {
+  appState: AppState
+): Pick<EntryContext, "actionData" | "appState" | "routeData" | "dataErrors"> {
   return {
     actionData: context.actionData || undefined,
     appState,
-    matches: createEntryMatches(renderableMatches, build.assets.routes),
     routeData: context.loaderData,
     dataErrors: context.errors || undefined,
   };

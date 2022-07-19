@@ -1,19 +1,24 @@
+import type { StaticHandlerContext } from "@remix-run/router";
 import { splitCookiesString } from "set-cookie-parser";
 
 import type { ServerBuild } from "./build";
-import type { ServerRoute } from "./routes";
-import type { RouteMatch } from "./routeMatching";
 
 export function getDocumentHeaders(
   build: ServerBuild,
-  matches: RouteMatch<ServerRoute>[],
-  routeLoaderHeaders: Record<string, Headers>,
-  actionResponse?: Response
+  context: StaticHandlerContext
 ): Headers {
+  let matches = context.errors
+    ? context.matches.slice(
+        0,
+        context.matches.findIndex((m) => context.errors![m.route.id]) + 1
+      )
+    : context.matches;
+
   return matches.reduce((parentHeaders, match, index) => {
     let routeModule = build.routes[match.route.id].module;
-    let loaderHeaders = routeLoaderHeaders[match.route.id] || new Headers();
-    let actionHeaders = actionResponse ? actionResponse.headers : new Headers();
+    let loaderHeaders = context.loaderHeaders[match.route.id] || new Headers();
+    let actionHeaders =
+      Object.values(context.actionHeaders)[0] || new Headers();
     let headers = new Headers(
       routeModule.headers
         ? typeof routeModule.headers === "function"
