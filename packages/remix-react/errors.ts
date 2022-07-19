@@ -2,8 +2,8 @@ import type { AppData } from "./data";
 
 export interface AppState {
   unhandledBoundaryError: SerializedError | ThrownResponse | null;
-  deepestCatchBoundaryId: null;
-  deepestErrorBoundaryId: null;
+  deepestCatchBoundaryId: string | null;
+  deepestErrorBoundaryId: string | null;
 }
 
 export interface ThrownResponse<

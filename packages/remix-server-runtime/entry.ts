@@ -1,6 +1,7 @@
 import type {
   DataRouteMatch,
   DataRouteObject,
+  HydrationState,
   Location,
 } from "@remix-run/router";
 
@@ -11,24 +12,30 @@ import type {
   EntryRoute,
   ServerRoute,
 } from "./routes";
-import type { RouteData } from "./routeData";
 import type { RouteMatch } from "./routeMatching";
 import type { RouteModules, EntryRouteModule } from "./routeModules";
 
 export interface EntryContext {
-  appState: AppState;
+  // Compiler information to communicate up to the client
   manifest: AssetsManifest;
-  routeData: RouteData;
-  actionData?: RouteData;
   routeModules: RouteModules<EntryRouteModule>;
+
+  // Render-time mutable state, used to emulate componentDidCatch during SSR
+  appState: AppState;
+
+  // Data/Errors from SSR fetches that we need to hydrate up to the client
+  hydrationData: HydrationState;
+
+  // Serialized version of hydrationData
   serverHandoffString?: string;
 
-  // New fields for data router
-  // TODO: Can we clean this up a bit when we do the real RRR work
-  dataRoutes: DataRouteObject[];
-  dataLocation: Location;
-  dataMatches: DataRouteMatch[];
-  dataErrors?: RouteData;
+  // Stateful information about the router that we need during SSR but don't
+  // need to hydrate
+  routerState: {
+    routes: DataRouteObject[];
+    location: Location;
+    matches: DataRouteMatch[];
+  };
 }
 
 export interface AssetsManifest {

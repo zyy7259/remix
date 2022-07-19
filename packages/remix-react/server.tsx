@@ -47,17 +47,24 @@ export function RemixServer({ context, url }: RemixServerProps): ReactElement {
   }
 
   let staticContext: StaticHandlerContext = {
-    location: context.dataLocation,
-    matches: context.dataMatches,
-    loaderData: context.routeData,
-    actionData: context.actionData || null,
-    errors: context.dataErrors,
+    location: context.routerState.location,
+    matches: context.routerState.matches,
+    loaderData: context.hydrationData.loaderData || {},
+    actionData: context.hydrationData.actionData || null,
+    errors: context.hydrationData.errors || null,
   };
 
-  let dataRoutes = adaptElements(context.dataRoutes, context.routeModules);
+  let dataRoutes = adaptElements(
+    context.routerState.routes,
+    context.routeModules
+  );
 
   return (
-    <DataStaticRouter dataRoutes={dataRoutes} context={staticContext}>
+    <DataStaticRouter
+      dataRoutes={dataRoutes}
+      context={staticContext}
+      hydrate={false}
+    >
       <RemixEntry context={context} />
     </DataStaticRouter>
   );

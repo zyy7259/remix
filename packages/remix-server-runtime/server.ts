@@ -219,53 +219,24 @@ async function handleDocumentRequest({
     context.errors = appState.unhandledBoundaryError ? null : errors;
   }
 
-  let responseHeaders = getDocumentHeaders(build, context);
-
-  let serverHandoff = getServerHandoff(context, appState);
-  let entryContext: EntryContext = {
-    ...serverHandoff,
-    manifest: build.assets,
-    routeModules: createEntryRouteModules(build.routes),
-    serverHandoffString: createServerHandoffString(serverHandoff),
-    dataRoutes,
-    dataLocation: context.location,
-    dataMatches: context.matches,
-    dataErrors: context.errors || undefined,
-  };
-
-  let handleDocumentRequest = build.entry.module.default;
   try {
-    return await handleDocumentRequest(
+    return await callServerEntryPoint(
+      build,
       request,
-      context.statusCode,
-      responseHeaders,
-      entryContext
+      dataRoutes,
+      context,
+      appState
     );
   } catch (error: any) {
     console.log("caught error in entry.server handleDocumentRequest", error);
-
-    if (appState.deepestErrorBoundaryId) {
-      console.log("Handling at boundary", appState.deepestErrorBoundaryId);
-      context.errors = {
-        [appState.deepestErrorBoundaryId]: error,
-      };
-      entryContext.dataErrors = context.errors;
-    } else {
-      console.log("No boundary found - handling at default boundary");
-      appState.unhandledBoundaryError = error;
-      context.errors = null;
-      entryContext.dataErrors = undefined;
-    }
-
-    let serverHandoff = getServerHandoff(context, appState);
-    entryContext.serverHandoffString = createServerHandoffString(serverHandoff);
-
     try {
-      return await handleDocumentRequest(
+      return await callServerEntryPoint(
+        build,
         request,
-        500,
-        responseHeaders,
-        entryContext
+        dataRoutes,
+        context,
+        appState,
+        error
       );
     } catch (error: any) {
       if (serverMode !== ServerMode.Test) {
@@ -345,14 +316,61 @@ async function errorBoundaryError(error: Error, status: number) {
   });
 }
 
-function getServerHandoff(
+async function callServerEntryPoint(
+  build: ServerBuild,
+  request: Request,
+  dataRoutes: DataRouteObject[],
   context: StaticHandlerContext,
-  appState: AppState
-): Pick<EntryContext, "actionData" | "appState" | "routeData" | "dataErrors"> {
-  return {
-    actionData: context.actionData || undefined,
+  appState: AppState,
+  error?: any
+) {
+  let responseHeaders = getDocumentHeaders(build, context);
+
+  let entryContext: EntryContext = {
+    manifest: build.assets,
+    routeModules: createEntryRouteModules(build.routes),
     appState,
-    routeData: context.loaderData,
-    dataErrors: context.errors || undefined,
+    hydrationData: {
+      loaderData: context.loaderData,
+      actionData: context.actionData,
+      errors: context.errors,
+    },
+    routerState: {
+      routes: dataRoutes,
+      location: context.location,
+      matches: context.matches,
+    },
   };
+
+  entryContext.serverHandoffString = createServerHandoffString(
+    appState,
+    entryContext.hydrationData
+  );
+
+  // If this is our second pass through with an error, update context/appState
+  // accordingly
+  if (error) {
+    context.statusCode = 500;
+
+    if (appState.deepestErrorBoundaryId) {
+      console.log("Handling at boundary", appState.deepestErrorBoundaryId);
+      context.errors = {
+        [appState.deepestErrorBoundaryId]: error,
+      };
+      entryContext.hydrationData.errors = context.errors;
+    } else {
+      console.log("No boundary found - handling at default boundary");
+      appState.unhandledBoundaryError = error;
+      context.errors = null;
+      entryContext.hydrationData.errors = null;
+    }
+  }
+
+  let handleDocumentRequest = build.entry.module.default;
+  return await handleDocumentRequest(
+    request,
+    context.statusCode,
+    responseHeaders,
+    entryContext
+  );
 }

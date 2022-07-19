@@ -4,6 +4,7 @@ import type {
   TouchEventHandler,
 } from "react";
 import * as React from "react";
+import type { RouterState } from "@remix-run/router";
 import type {
   DataRouteMatch,
   FormProps,
@@ -68,8 +69,8 @@ import type {
 interface RemixEntryContextType {
   manifest: AssetsManifest;
   matches: BaseRouteMatch<ClientRoute>[];
-  routeData: { [routeId: string]: RouteData };
-  actionData?: RouteData;
+  loaderData: RouterState["loaderData"];
+  actionData: RouterState["actionData"];
   pendingLocation?: Location;
   appState: AppState;
   routeModules: RouteModules;
@@ -99,14 +100,8 @@ export function RemixEntry({
     "RemixEntry can only be rendered within a Data Router"
   );
   let { router } = dataRouterContext;
-  let {
-    manifest,
-    routeData,
-    actionData,
-    routeModules,
-    serverHandoffString,
-    appState,
-  } = entryContext;
+  let { manifest, routeModules, serverHandoffString, appState, hydrationData } =
+    entryContext;
 
   let clientRoutes = React.useMemo(
     () => createClientRoutes(manifest.routes, routeModules, RemixRoute),
@@ -152,8 +147,8 @@ export function RemixEntry({
         routeModules,
         serverHandoffString,
         clientRoutes,
-        routeData,
-        actionData,
+        loaderData: hydrationData.loaderData || {},
+        actionData: hydrationData.actionData || null,
       }}
     >
       <RemixErrorBoundary
@@ -199,12 +194,12 @@ function DefaultRouteComponent({ id }: { id: string }): React.ReactElement {
 }
 
 export function RemixRoute({ id }: { id: string }) {
-  let { routeData, routeModules, appState } = useRemixEntryContext();
+  let { loaderData, routeModules, appState } = useRemixEntryContext();
 
   // This checks prevent cryptic error messages such as: 'Cannot read properties of undefined (reading 'root')'
   invariant(
-    routeData,
-    "Cannot initialize 'routeData'. This normally occurs when you have server code in your client modules.\n" +
+    loaderData,
+    "Cannot initialize 'loaderData'. This normally occurs when you have server code in your client modules.\n" +
       "Check this link for more details:\nhttps://remix.run/pages/gotchas#server-code-in-client-bundles"
   );
   invariant(
@@ -213,11 +208,12 @@ export function RemixRoute({ id }: { id: string }) {
       "Check this link for more details:\nhttps://remix.run/pages/gotchas#server-code-in-client-bundles"
   );
 
-  let data = routeData[id];
   let { default: Component, CatchBoundary, ErrorBoundary } = routeModules[id];
   let element = Component ? <Component /> : <DefaultRouteComponent id={id} />;
 
-  let context: RemixRouteContextType = { data, id };
+  // TODO: Can we get rid of `data` here since useLoaderData will grab from the
+  // router context?
+  let context: RemixRouteContextType = { data: loaderData[id], id };
 
   // TODO: Figure out if we still need these separate flags or if one would do?
   console.log("rendering route id", id);
@@ -553,7 +549,7 @@ function PrefetchPageLinksImpl({
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Meta() {
-  let { matches, routeData, routeModules } = useRemixEntryContext();
+  let { matches, loaderData, routeModules } = useRemixEntryContext();
   let location = useLocation();
 
   let meta: HtmlMetaDescriptor = {};
@@ -561,7 +557,7 @@ export function Meta() {
 
   for (let match of matches) {
     let routeId = match.route.id;
-    let data = routeData[routeId];
+    let data = loaderData[routeId];
     let params = match.params;
 
     let routeModule = routeModules[routeId];

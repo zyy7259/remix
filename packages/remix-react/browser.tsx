@@ -37,14 +37,14 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   entryContext.routeModules = window.__remixRouteModules;
 
   // Deserialize errors and catch
-  if (entryContext.dataErrors) {
+  if (entryContext.hydrationData.errors) {
     let errors: Record<string, any> = {};
-    for (let routeId of Object.keys(entryContext.dataErrors)) {
-      let error = entryContext.dataErrors[routeId];
+    for (let routeId of Object.keys(entryContext.hydrationData.errors)) {
+      let error = entryContext.hydrationData.errors[routeId];
       errors[routeId] =
         "status" in error ? deserializeCatch(error) : deserializeError(error);
     }
-    entryContext.dataErrors = errors;
+    entryContext.hydrationData.errors = errors;
   }
 
   if (!routerSingleton) {
@@ -52,13 +52,8 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
       entryContext.manifest.routes,
       entryContext.routeModules
     );
-    let hydrationData = {
-      loaderData: entryContext.routeData,
-      actionData: entryContext.actionData,
-      errors: entryContext.dataErrors,
-    };
     routerSingleton = createBrowserRouter({
-      hydrationData,
+      hydrationData: entryContext.hydrationData,
       window,
       routes,
     }).initialize();
