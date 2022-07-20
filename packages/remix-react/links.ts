@@ -232,7 +232,7 @@ export function getLinksForMatches(
   let descriptors = matches
     .map((match): LinkDescriptor[] => {
       let module = routeModules[match.route.id];
-      return module.links?.() || [];
+      return typeof module.links === "function" ? module.links() : [];
     })
     .flat(1);
 

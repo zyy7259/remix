@@ -523,11 +523,28 @@ export function composeEventHandlers<
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Links() {
-  let { matches, routeModules, manifest } = useRemixEntryContext();
+  let { matches, routeModules, manifest, appState, clientRoutes } =
+    useRemixEntryContext();
+
+  let renderableMatches = getRenderableMatches(matches, appState);
+
+  if (!renderableMatches) {
+    renderableMatches = [];
+
+    let root = clientRoutes[0];
+    if (root?.CatchBoundary) {
+      appState.catchBoundaryRouteId = "root";
+      renderableMatches.push({
+        params: {},
+        pathname: "",
+        route: clientRoutes[0],
+      });
+    }
+  }
 
   let links = React.useMemo(
-    () => getLinksForMatches(matches, routeModules, manifest),
-    [matches, routeModules, manifest]
+    () => getLinksForMatches(renderableMatches!, routeModules, manifest),
+    [renderableMatches, routeModules, manifest]
   );
 
   return (
@@ -676,19 +693,65 @@ function PrefetchPageLinksImpl({
   );
 }
 
+function getRenderableMatches(
+  matches: BaseRouteMatch<ClientRoute>[] | null,
+  appState: AppState
+) {
+  if (!matches) {
+    return null;
+  }
+
+  // no error, no worries
+  if (!appState.catch && !appState.error) {
+    return matches;
+  }
+
+  let lastRenderableIndex: number = -1;
+
+  matches.forEach((match, index) => {
+    let id = match.route.id;
+    if (
+      appState.renderBoundaryRouteId === id ||
+      appState.loaderBoundaryRouteId === id ||
+      appState.catchBoundaryRouteId === id
+    ) {
+      lastRenderableIndex = index;
+    }
+  });
+
+  return matches.slice(0, lastRenderableIndex + 1);
+}
+
 /**
  * Renders the `<title>` and `<meta>` tags for the current routes.
  *
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Meta() {
-  let { matches, routeData, routeModules } = useRemixEntryContext();
+  let { matches, routeData, routeModules, appState, clientRoutes } =
+    useRemixEntryContext();
   let location = useLocation();
 
   let meta: HtmlMetaDescriptor = {};
   let parentsData: { [routeId: string]: AppData } = {};
 
-  for (let match of matches) {
+  let renderableMatches = getRenderableMatches(matches, appState);
+
+  if (!renderableMatches) {
+    renderableMatches = [];
+
+    let root = clientRoutes[0];
+    if (root?.CatchBoundary) {
+      appState.catchBoundaryRouteId = "root";
+      renderableMatches.push({
+        params: {},
+        pathname: "",
+        route: clientRoutes[0],
+      });
+    }
+  }
+
+  for (let match of renderableMatches) {
     let routeId = match.route.id;
     let data = routeData[routeId];
     let params = match.params;
