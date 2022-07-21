@@ -42,12 +42,6 @@
 
 import type { ErrorResponse } from "@remix-run/router";
 
-export interface AppState {
-  unhandledBoundaryError: Error | ThrownResponse | null;
-  deepestCatchBoundaryId: null;
-  deepestErrorBoundaryId: null;
-}
-
 export interface ThrownResponse<T = any> {
   status: number;
   statusText: string;

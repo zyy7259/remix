@@ -4,7 +4,6 @@ import type {
   TouchEventHandler,
 } from "react";
 import * as React from "react";
-import type { RouterState } from "@remix-run/router";
 import type {
   DataRouteMatch,
   FormProps,
@@ -16,10 +15,9 @@ import type {
   SubmitFunction,
 } from "react-router-dom";
 import {
-  DataRouter,
-  UNSAFE_DataRouterContext,
   useFetcher as useRouterFetcher,
   useFetchers as useRouterFetchers,
+  UNSAFE_DataRouterStateContext as DataRouterStateContext,
 } from "react-router-dom";
 import {
   Link as RouterLink,
@@ -30,14 +28,7 @@ import {
 } from "react-router-dom";
 
 import type { AppData } from "./data";
-import type { EntryContext, AssetsManifest } from "./entry";
-import type { AppState, SerializedError, ThrownResponse } from "./errors";
-import {
-  RemixRootDefaultErrorBoundary,
-  RemixErrorBoundary,
-  RemixRootDefaultCatchBoundary,
-  RemixCatchBoundary,
-} from "./errorBoundaries";
+import type { AssetsManifest, RemixContextObject } from "./entry";
 import invariant from "./invariant";
 import {
   getDataLinkHrefs,
@@ -55,7 +46,7 @@ import { createClientRoutes } from "./routes";
 import type { RouteData } from "./routeData";
 import type { RouteMatch as BaseRouteMatch } from "./routeMatching";
 import { matchClientRoutes } from "./routeMatching";
-import type { RouteModules, HtmlMetaDescriptor } from "./routeModules";
+import type { HtmlMetaDescriptor } from "./routeModules";
 import type {
   Transition,
   Fetcher,
@@ -64,44 +55,30 @@ import type {
 } from "./transition";
 
 ////////////////////////////////////////////////////////////////////////////////
-// RemixEntry
+// RemixContext
 
-interface RemixEntryContextType {
-  manifest: AssetsManifest;
+export const RemixContext = React.createContext<RemixContextObject | undefined>(
+  undefined
+);
+RemixContext.displayName = "Remix";
+
+interface UseRemixContextType extends RemixContextObject {
   matches: BaseRouteMatch<ClientRoute>[];
-  loaderData: RouterState["loaderData"];
-  actionData: RouterState["actionData"];
-  pendingLocation?: Location;
-  appState: AppState;
-  routeModules: RouteModules;
-  serverHandoffString?: string;
   clientRoutes: ClientRoute[];
 }
 
-export const RemixEntryContext = React.createContext<
-  RemixEntryContextType | undefined
->(undefined);
-
 // FIXME: Unexport this once RemixRouteError moves into this file
-export function useRemixEntryContext(): RemixEntryContextType {
-  let context = React.useContext(RemixEntryContext);
+export function useRemixContext(): UseRemixContextType {
+  let context = React.useContext(RemixContext);
   invariant(context, "You must render this element inside a <Remix> element");
-  return context;
-}
-
-export function RemixEntry({
-  context: entryContext,
-}: {
-  context: EntryContext;
-}) {
-  let dataRouterContext = React.useContext(UNSAFE_DataRouterContext);
+  let dataRouterStateContext = React.useContext(DataRouterStateContext);
   invariant(
-    dataRouterContext,
-    "RemixEntry can only be rendered within a Data Router"
+    dataRouterStateContext,
+    "You must render this element inside a <DataRouterStateProvider> element"
   );
-  let { router } = dataRouterContext;
-  let { manifest, routeModules, serverHandoffString, appState, hydrationData } =
-    entryContext;
+
+  let { manifest, routeModules } = context;
+  let { matches: routerMatches } = dataRouterStateContext;
 
   let clientRoutes = React.useMemo(
     () => createClientRoutes(manifest.routes, routeModules, RemixRoute),
@@ -110,7 +87,7 @@ export function RemixEntry({
 
   let matches = React.useMemo(
     () =>
-      router.state.matches.map((match: DataRouteMatch) => {
+      routerMatches.map((match: DataRouteMatch) => {
         let clientMatch: BaseRouteMatch<ClientRoute> = {
           ...match,
           route: createClientRoute(
@@ -121,70 +98,18 @@ export function RemixEntry({
         };
         return clientMatch;
       }),
-    [router, manifest, routeModules]
+    [routerMatches, manifest, routeModules]
   );
 
-  // If we tried to render and failed, and the app threw before rendering any
-  // routes, get the error and pass it to the ErrorBoundary to emulate
-  // `componentDidCatch`
-  let ssrErrorBeforeRoutesRendered: Error | undefined;
-  let ssrCatchBeforeRoutesRendered: ThrownResponse | undefined;
-
-  if (appState.unhandledBoundaryError) {
-    if (appState.unhandledBoundaryError?.status) {
-      ssrCatchBeforeRoutesRendered = appState.unhandledBoundaryError;
-    } else {
-      ssrErrorBeforeRoutesRendered = appState.unhandledBoundaryError;
-    }
-  }
-
-  return (
-    <RemixEntryContext.Provider
-      value={{
-        matches,
-        manifest,
-        appState,
-        routeModules,
-        serverHandoffString,
-        clientRoutes,
-        loaderData: hydrationData.loaderData || {},
-        actionData: hydrationData.actionData || null,
-      }}
-    >
-      <RemixErrorBoundary
-        location={dataRouterContext.router.state.location}
-        component={RemixRootDefaultErrorBoundary}
-        error={ssrErrorBeforeRoutesRendered}
-        handleCatch={true}
-      >
-        <RemixCatchBoundary
-          component={RemixRootDefaultCatchBoundary}
-          catch={ssrCatchBeforeRoutesRendered}
-        >
-          <DataRouter />
-        </RemixCatchBoundary>
-      </RemixErrorBoundary>
-    </RemixEntryContext.Provider>
-  );
-}
-
-function deserializeError(data: SerializedError): Error {
-  let error = new Error(data.message);
-  error.stack = data.stack;
-  return error;
+  return {
+    ...context,
+    clientRoutes,
+    matches,
+  };
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // RemixRoute
-
-interface RemixRouteContextType {
-  data: AppData;
-  id: string;
-}
-
-const RemixRouteContext = React.createContext<
-  RemixRouteContextType | undefined
->(undefined);
 
 function DefaultRouteComponent({ id }: { id: string }): React.ReactElement {
   throw new Error(
@@ -194,45 +119,16 @@ function DefaultRouteComponent({ id }: { id: string }): React.ReactElement {
 }
 
 export function RemixRoute({ id }: { id: string }) {
-  let { loaderData, routeModules, appState } = useRemixEntryContext();
+  let { routeModules } = useRemixContext();
 
-  // This checks prevent cryptic error messages such as: 'Cannot read properties of undefined (reading 'root')'
-  invariant(
-    loaderData,
-    "Cannot initialize 'loaderData'. This normally occurs when you have server code in your client modules.\n" +
-      "Check this link for more details:\nhttps://remix.run/pages/gotchas#server-code-in-client-bundles"
-  );
   invariant(
     routeModules,
     "Cannot initialize 'routeModules'. This normally occurs when you have server code in your client modules.\n" +
       "Check this link for more details:\nhttps://remix.run/pages/gotchas#server-code-in-client-bundles"
   );
 
-  let { default: Component, CatchBoundary, ErrorBoundary } = routeModules[id];
-  let element = Component ? <Component /> : <DefaultRouteComponent id={id} />;
-
-  // TODO: Can we get rid of `data` here since useLoaderData will grab from the
-  // router context?
-  let context: RemixRouteContextType = { data: loaderData[id], id };
-
-  // TODO: Figure out if we still need these separate flags or if one would do?
-  console.log("rendering route id", id);
-
-  if (CatchBoundary) {
-    appState.deepestCatchBoundaryId = id;
-  }
-
-  if (ErrorBoundary) {
-    appState.deepestErrorBoundaryId = id;
-  }
-
-  // It's important for the route context to be above the error boundary so that
-  // a call to `useLoaderData` doesn't accidentally get the parents route's data.
-  return (
-    <RemixRouteContext.Provider value={context}>
-      {element}
-    </RemixRouteContext.Provider>
-  );
+  let { default: Component } = routeModules[id];
+  return Component ? <Component /> : <DefaultRouteComponent id={id} />;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -390,7 +286,7 @@ export function composeEventHandlers<
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Links() {
-  let { matches, routeModules, manifest } = useRemixEntryContext();
+  let { matches, routeModules, manifest } = useRemixContext();
 
   let links = React.useMemo(
     () => getLinksForMatches(matches, routeModules, manifest),
@@ -456,7 +352,7 @@ export function PrefetchPageLinks({
   page,
   ...dataLinkProps
 }: PrefetchPageDescriptor) {
-  let { clientRoutes } = useRemixEntryContext();
+  let { clientRoutes } = useRemixContext();
   let matches = React.useMemo(
     () => matchClientRoutes(clientRoutes, page),
     [clientRoutes, page]
@@ -473,7 +369,7 @@ export function PrefetchPageLinks({
 }
 
 function usePrefetchedStylesheets(matches: BaseRouteMatch<ClientRoute>[]) {
-  let { routeModules } = useRemixEntryContext();
+  let { routeModules } = useRemixContext();
 
   let [styleLinks, setStyleLinks] = React.useState<HtmlLinkDescriptor[]>([]);
 
@@ -500,7 +396,7 @@ function PrefetchPageLinksImpl({
   matches: BaseRouteMatch<ClientRoute>[];
 }) {
   let location = useLocation();
-  let { matches, manifest } = useRemixEntryContext();
+  let { matches, manifest } = useRemixContext();
 
   let newMatchesForData = React.useMemo(
     () => getNewMatchesForLinks(page, nextMatches, matches, location, "data"),
@@ -549,7 +445,9 @@ function PrefetchPageLinksImpl({
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Meta() {
-  let { matches, loaderData, routeModules } = useRemixEntryContext();
+  let { matches, routeModules } = useRemixContext();
+  let routerState = React.useContext(DataRouterStateContext);
+  invariant(routerState, "<Meta> must be rendered inside a <DataRouter>");
   let location = useLocation();
 
   let meta: HtmlMetaDescriptor = {};
@@ -557,7 +455,7 @@ export function Meta() {
 
   for (let match of matches) {
     let routeId = match.route.id;
-    let data = loaderData[routeId];
+    let data = routerState.loaderData[routeId];
     let params = match.params;
 
     let routeModule = routeModules[routeId];
@@ -642,13 +540,8 @@ type ScriptProps = Omit<
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Scripts(props: ScriptProps) {
-  let {
-    manifest,
-    matches,
-    pendingLocation,
-    clientRoutes,
-    serverHandoffString,
-  } = useRemixEntryContext();
+  let { manifest, matches, clientRoutes, serverHandoffString } =
+    useRemixContext();
 
   React.useEffect(() => {
     isHydrated = true;
@@ -656,7 +549,7 @@ export function Scripts(props: ScriptProps) {
 
   let initialScripts = React.useMemo(() => {
     let contextScript = serverHandoffString
-      ? `window.__remixContext = ${serverHandoffString};`
+      ? `window.__remixHydrationData = ${serverHandoffString};`
       : "";
 
     let routeModulesScript = `${matches
@@ -695,16 +588,16 @@ window.__remixRouteModules = {${matches
 
   // avoid waterfall when importing the next route module
   let nextMatches = React.useMemo(() => {
-    if (pendingLocation) {
-      // TODO: Can this leverage useNavigation.location?
-      // FIXME: can probably use transitionManager `nextMatches`
-      let matches = matchClientRoutes(clientRoutes, pendingLocation);
-      invariant(matches, `No routes match path "${pendingLocation.pathname}"`);
-      return matches;
-    }
+    // TODO: Can this leverage useNavigation.location?
+    // if (pendingLocation) {
+    //   // FIXME: can probably use transitionManager `nextMatches`
+    //   let matches = matchClientRoutes(clientRoutes, pendingLocation);
+    //   invariant(matches, `No routes match path "${pendingLocation.pathname}"`);
+    //   return matches;
+    // }
 
     return [];
-  }, [pendingLocation, clientRoutes]);
+  }, [clientRoutes]);
 
   let routePreloads = matches
     .concat(nextMatches)

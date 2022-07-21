@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, act } from "@testing-library/react";
 
 import type { LiveReload as ActualLiveReload } from "../components";
-import { Link, NavLink, RemixEntryContext } from "../components";
+import { Link, NavLink, RemixContext } from "../components";
 
 import "@testing-library/jest-dom/extend-expect";
 
@@ -108,9 +108,9 @@ function itPrefetchesPageLinks<
         transitionManager: {} as any,
       };
       return (
-        <RemixEntryContext.Provider value={context}>
+        <RemixContext.Provider value={context}>
           <MemoryRouter>{stuff}</MemoryRouter>
-        </RemixEntryContext.Provider>
+        </RemixContext.Provider>
       );
     }
 

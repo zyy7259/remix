@@ -5,11 +5,11 @@ import type {
 } from "@remix-run/router";
 import {
   isRouteErrorResponse,
+  getStaticContextFromError,
   unstable_createStaticHandler,
 } from "@remix-run/router";
 
 import type { AppLoadContext } from "./data";
-import type { AppState } from "./errors";
 import { serializeError } from "./errors";
 import type { HandleDataRequestFunction, ServerBuild } from "./build";
 import type { EntryContext } from "./entry";
@@ -17,7 +17,10 @@ import { createEntryRouteModules } from "./entry";
 import { getDocumentHeaders } from "./headers";
 import { ServerMode, isServerMode } from "./mode";
 import { matchServerRoutes } from "./routeMatching";
-import { createServerDataRoutes, findParentBoundary } from "./rrr";
+import {
+  createServerDataRoutes,
+  differentiateCatchVersusErrorBoundaries,
+} from "./rrr";
 import { createRoutes } from "./routes";
 import { json, isRedirectResponse } from "./responses";
 import { createServerHandoffString } from "./serverHandoff";
@@ -190,54 +193,44 @@ async function handleDocumentRequest({
     return context;
   }
 
-  let appState: AppState = {
-    unhandledBoundaryError: null,
-    deepestCatchBoundaryId: null,
-    deepestErrorBoundaryId: null,
+  differentiateCatchVersusErrorBoundaries(build, context);
+
+  let responseHeaders = getDocumentHeaders(build, context);
+
+  let entryContext: EntryContext = {
+    manifest: build.assets,
+    routeModules: createEntryRouteModules(build.routes),
+    routes: dataRoutes,
+    staticHandlerContext: context,
+    serverHandoffString: createServerHandoffString(context),
   };
 
-  // Re-generate a remix-friendly context.errors structure.  The Router only
-  // handles generic errors and does not distinguish error versus catch.  We
-  // may have a thrown response tagged to a route that only exports an
-  // ErrorBoundary or vice versa.  So we adjust here and ensure that
-  // data-loading errors are properly associated with routes that have the right
-  // type of boundaries.
-  if (context.errors) {
-    let errors: Record<string, any> = {};
-    for (let routeId of Object.keys(context.errors)) {
-      let error = context.errors[routeId];
-      let handlingRouteId = findParentBoundary(build.routes, routeId, error);
-      if (handlingRouteId) {
-        errors[handlingRouteId] = error;
-      } else {
-        appState.unhandledBoundaryError = error;
-      }
-    }
-
-    // Null out context.errors if we have an unhandled errors since we won't be
-    // rendering anything beyond the root boundary anyway
-    context.errors = appState.unhandledBoundaryError ? null : errors;
-  }
+  let handleDocumentRequest = () =>
+    build.entry.module.default(
+      request,
+      (context as StaticHandlerContext).statusCode,
+      responseHeaders,
+      entryContext
+    );
 
   try {
-    return await callServerEntryPoint(
-      build,
-      request,
-      dataRoutes,
-      context,
-      appState
-    );
+    return await handleDocumentRequest();
   } catch (error: any) {
     console.log("caught error in entry.server handleDocumentRequest", error);
+
+    // Get a new StaticHandlerContext that contains the error at the right boundary
+    context = getStaticContextFromError(dataRoutes, context, error);
+
+    // Handle Remix separation of Error versus Catch boundaries
+    differentiateCatchVersusErrorBoundaries(build, context);
+
+    // Re-stringify the data for the browser
+    entryContext.serverHandoffString = createServerHandoffString(
+      entryContext.staticHandlerContext
+    );
+
     try {
-      return await callServerEntryPoint(
-        build,
-        request,
-        dataRoutes,
-        context,
-        appState,
-        error
-      );
+      return await handleDocumentRequest();
     } catch (error: any) {
       if (serverMode !== ServerMode.Test) {
         console.error(error);
@@ -314,63 +307,4 @@ async function errorBoundaryError(error: Error, status: number) {
       "X-Remix-Error": "yes",
     },
   });
-}
-
-async function callServerEntryPoint(
-  build: ServerBuild,
-  request: Request,
-  dataRoutes: DataRouteObject[],
-  context: StaticHandlerContext,
-  appState: AppState,
-  error?: any
-) {
-  let responseHeaders = getDocumentHeaders(build, context);
-
-  let entryContext: EntryContext = {
-    manifest: build.assets,
-    routeModules: createEntryRouteModules(build.routes),
-    appState,
-    hydrationData: {
-      loaderData: context.loaderData,
-      actionData: context.actionData,
-      errors: context.errors,
-    },
-    routerState: {
-      routes: dataRoutes,
-      location: context.location,
-      matches: context.matches,
-    },
-  };
-
-  entryContext.serverHandoffString = createServerHandoffString(
-    appState,
-    entryContext.hydrationData
-  );
-
-  // If this is our second pass through with an error, update context/appState
-  // accordingly
-  if (error) {
-    context.statusCode = 500;
-
-    if (appState.deepestErrorBoundaryId) {
-      console.log("Handling at boundary", appState.deepestErrorBoundaryId);
-      context.errors = {
-        [appState.deepestErrorBoundaryId]: error,
-      };
-      entryContext.hydrationData.errors = context.errors;
-    } else {
-      console.log("No boundary found - handling at default boundary");
-      appState.unhandledBoundaryError = error;
-      context.errors = null;
-      entryContext.hydrationData.errors = null;
-    }
-  }
-
-  let handleDocumentRequest = build.entry.module.default;
-  return await handleDocumentRequest(
-    request,
-    context.statusCode,
-    responseHeaders,
-    entryContext
-  );
 }

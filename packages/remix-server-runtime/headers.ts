@@ -14,8 +14,12 @@ export function getDocumentHeaders(
       )
     : context.matches;
 
-  return matches.reduce((parentHeaders, match, index) => {
-    let routeModule = build.routes[match.route.id].module;
+  return matches.reduce((parentHeaders, match) => {
+    let routeModule = build.routes[match.route.id]?.module;
+    if (!routeModule) {
+      return parentHeaders;
+    }
+
     let loaderHeaders = context.loaderHeaders[match.route.id] || new Headers();
     let actionHeaders =
       Object.values(context.actionHeaders)[0] || new Headers();

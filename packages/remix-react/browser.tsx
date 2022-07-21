@@ -1,28 +1,22 @@
-import type { Router as DataRouter } from "@remix-run/router";
-import { createBrowserRouter, ErrorResponse } from "@remix-run/router";
+import type { HydrationState } from "@remix-run/router";
+import { ErrorResponse } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
-import { DataRouterProvider } from "react-router-dom";
+import { DataBrowserRouter } from "react-router-dom";
 
-import { RemixEntry, RemixRoute } from "./components";
-import type { EntryContext } from "./entry";
-import type { SerializedError, ThrownResponse } from "./errors";
+import { RemixContext } from "./components";
+import type { RemixContextObject } from "./entry";
+import type { SerializedError } from "./errors";
 import type { RouteModules } from "./routeModules";
 import { createClientDataRoutes } from "./rrr";
 
 /* eslint-disable prefer-let/prefer-let */
 declare global {
-  var __remixContext: EntryContext;
+  var __remixHydrationData: HydrationState;
   var __remixRouteModules: RouteModules;
-  var __remixManifest: EntryContext["manifest"];
+  var __remixManifest: RemixContextObject["manifest"];
 }
 /* eslint-enable prefer-let/prefer-let */
-
-// Module-scoped singleton to hold the router.  Extracted from the React lifecycle
-// to avoid issues w.r.t. dual initialization fetches in concurrent rendering.
-// Data router apps are expected to have a static route tree and are not intended
-// to be unmounted/remounted at runtime.
-let routerSingleton: DataRouter;
 
 export interface RemixBrowserProps {}
 
@@ -32,38 +26,31 @@ export interface RemixBrowserProps {}
  * that was received from the server.
  */
 export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
-  let entryContext = window.__remixContext;
-  entryContext.manifest = window.__remixManifest;
-  entryContext.routeModules = window.__remixRouteModules;
+  let hydrationData = window.__remixHydrationData;
+  let manifest = window.__remixManifest;
+  let routeModules = window.__remixRouteModules;
 
   // Deserialize errors and catch
-  if (entryContext.hydrationData.errors) {
+  // TODO: Does this re-render?  Do we want to memo this?
+  if (hydrationData.errors) {
     let errors: Record<string, any> = {};
-    for (let routeId of Object.keys(entryContext.hydrationData.errors)) {
-      let error = entryContext.hydrationData.errors[routeId];
+    for (let routeId of Object.keys(hydrationData.errors)) {
+      let error = hydrationData.errors[routeId];
       errors[routeId] =
         "status" in error ? deserializeCatch(error) : deserializeError(error);
     }
-    entryContext.hydrationData.errors = errors;
+    hydrationData.errors = errors;
   }
 
-  if (!routerSingleton) {
-    let routes = createClientDataRoutes(
-      entryContext.manifest.routes,
-      entryContext.routeModules
-    );
-    routerSingleton = createBrowserRouter({
-      hydrationData: entryContext.hydrationData,
-      window,
-      routes,
-    }).initialize();
-  }
-  let router = routerSingleton;
+  let routes = React.useMemo(
+    () => createClientDataRoutes(manifest.routes, routeModules),
+    [manifest.routes, routeModules]
+  );
 
   return (
-    <DataRouterProvider router={router}>
-      <RemixEntry context={entryContext} />
-    </DataRouterProvider>
+    <RemixContext.Provider value={{ manifest, routeModules }}>
+      <DataBrowserRouter routes={routes} hydrationData={hydrationData} />
+    </RemixContext.Provider>
   );
 }
 

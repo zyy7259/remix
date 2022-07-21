@@ -7,26 +7,27 @@ import { useRouteError, useLocation } from "react-router-dom";
 import type { RouteModules } from "./routeModules";
 import type { EntryRoute, RouteManifest } from "./routes";
 import { createAction, createLoader } from "./routes";
-import { RemixCatchBoundary, RemixErrorBoundary } from "./errorBoundaries";
-import { RemixRoute, useRemixEntryContext } from "./components";
+import {
+  RemixCatchBoundary,
+  RemixErrorBoundary,
+  RemixRootDefaultCatchBoundary,
+  RemixRootDefaultErrorBoundary,
+} from "./errorBoundaries";
+import { RemixRoute, useRemixContext } from "./components";
 import invariant from "./invariant";
 
 // TODO:
-// - Start removing things from RemixEntryContext in favor of using data router versions
-// - map out data flow of manifest -> routes -> router -> context
-//   - server
-//     - EntryContext created in handleDocumentRequest
-//     -> entry.server.tsx
-//     -> <RemixServer>
-//     -> <RemixEntry> (inside of <DataStaticRouter>)
-//     -> <Scripts> generates window.__remixContext from serverHandoffString
-//   - client
-//     - entry.client.tsx renders <RemixBrowser>
-//     -> <RemixBrowser> reads window.__remixContext
-//     -> <RemixEntry> (inside of <WithDataRouter>)
 // - handle credentials on requests
-// - distinguish catch and error boundaries
-// - handle infinite loop on error boundaries
+
+// TODO: route breakdown - how best to type these?
+// server
+// manifest routes (knows about modules)                   agnostic
+// createRouter routes (knows errorBoundary: true)         agnostic
+// data static router routes (knows element/errorElement)  framework specific
+
+// client
+// over the wire manifest routes (knows about modules)     agnostic
+// data browser routes (knows element/errorElement)        framework specific
 
 export function createClientDataRoute(
   entryRoute: EntryRoute,
@@ -84,7 +85,7 @@ export function createClientDataRoutes(
 }
 
 export function RemixRouteError({ id }: { id: string }) {
-  let { routeModules } = useRemixEntryContext();
+  let { routeModules } = useRemixContext();
 
   // This checks prevent cryptic error messages such as: 'Cannot read properties of undefined (reading 'root')'
   invariant(
@@ -99,13 +100,17 @@ export function RemixRouteError({ id }: { id: string }) {
 
   let { CatchBoundary, ErrorBoundary } = routeModules[id];
 
+  // Provide defaults for the root route if they are not present
+  if (id === "root") {
+    CatchBoundary ||= RemixRootDefaultCatchBoundary;
+    ErrorBoundary ||= RemixRootDefaultErrorBoundary;
+  }
+
   if (isCatch && CatchBoundary) {
-    console.log("Rendering errorElement as a CatchBoundary", id, error);
     return <RemixCatchBoundary component={CatchBoundary} catch={error} />;
   }
 
   if (!isCatch && ErrorBoundary) {
-    console.log("Rendering errorElement as an ErrorBoundary", id, error);
     return (
       <RemixErrorBoundary
         location={location}
@@ -115,6 +120,5 @@ export function RemixRouteError({ id }: { id: string }) {
     );
   }
 
-  console.log("Re-throwing error to higher Catch/Error Boundary", id);
   throw error;
 }
