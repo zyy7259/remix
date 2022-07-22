@@ -224,10 +224,11 @@ async function handleDocumentRequest({
     // Handle Remix separation of Error versus Catch boundaries
     differentiateCatchVersusErrorBoundaries(build, context);
 
-    // Re-stringify the data for the browser
-    entryContext.serverHandoffString = createServerHandoffString(
-      entryContext.staticHandlerContext
-    );
+    // Update entryContext for the second render pass
+    Object.assign(entryContext, {
+      staticHandlerContext: context,
+      serverHandoffString: createServerHandoffString(context),
+    });
 
     try {
       return await handleDocumentRequest();

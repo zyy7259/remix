@@ -16,7 +16,7 @@ export function createServerHandoffString(
   let serverHandoff: SerializedHydrationState = {
     loaderData,
     actionData,
-    errors: errors || getSerializedErrors(errors),
+    errors: getSerializedErrors(errors),
   };
 
   // Use jsesc to escape data returned from the loaders. This string is

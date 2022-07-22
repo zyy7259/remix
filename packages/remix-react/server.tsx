@@ -1,7 +1,7 @@
 import type { DataRouteObject } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
-import { DataStaticRouter } from "react-router-dom/server";
+import { unstable_DataStaticRouter as DataStaticRouter } from "react-router-dom/server";
 
 import { RemixContext, RemixRoute } from "./components";
 import type { EntryContext } from "./entry";
