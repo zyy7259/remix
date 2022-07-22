@@ -47,8 +47,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let matches = matchServerRoutes(routes, url.pathname);
 
     let serverRoutes = createStaticHandlerDataRoutes(build.routes, loadContext);
-    let { dataRoutes, query, queryRoute } =
-      unstable_createStaticHandler(serverRoutes);
+    let staticHandler = unstable_createStaticHandler(serverRoutes);
 
     let response: Response;
     if (url.searchParams.has("_data")) {
@@ -57,21 +56,20 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
         loadContext,
         handleDataRequest: build.entry.module.handleDataRequest,
         serverMode,
-        queryRoute,
+        staticHandler,
       });
     } else if (matches && !matches[matches.length - 1].route.module.default) {
       response = await handleResourceRequest({
         request,
         serverMode,
-        queryRoute,
+        staticHandler,
       });
     } else {
       response = await handleDocumentRequest({
         build,
         request,
         serverMode,
-        query,
-        dataRoutes,
+        staticHandler,
       });
     }
 
@@ -92,13 +90,13 @@ async function handleDataRequest({
   loadContext,
   request,
   serverMode,
-  queryRoute,
+  staticHandler,
 }: {
   handleDataRequest?: HandleDataRequestFunction;
   loadContext: unknown;
   request: Request;
   serverMode: ServerMode;
-  queryRoute: StaticHandler["queryRoute"];
+  staticHandler: StaticHandler;
 }): Promise<Response> {
   let url = new URL(request.url);
   let routeId = url.searchParams.get("_data");
@@ -117,7 +115,7 @@ async function handleDataRequest({
   }
 
   try {
-    let state = await queryRoute(request, routeId);
+    let state = await staticHandler.queryRoute(request, routeId);
 
     if (state instanceof Error) {
       return errorBoundaryError(state, 500);
@@ -179,16 +177,14 @@ async function handleDocumentRequest({
   build,
   request,
   serverMode,
-  query,
-  dataRoutes,
+  staticHandler,
 }: {
   build: ServerBuild;
   request: Request;
   serverMode?: ServerMode;
-  query: StaticHandler["query"];
-  dataRoutes: DataRouteObject[];
+  staticHandler: StaticHandler;
 }): Promise<Response> {
-  let context = await query(request);
+  let context = await staticHandler.query(request);
   if (context instanceof Response) {
     return context;
   }
@@ -218,7 +214,11 @@ async function handleDocumentRequest({
     console.log("caught error in entry.server handleDocumentRequest", error);
 
     // Get a new StaticHandlerContext that contains the error at the right boundary
-    context = getStaticContextFromError(dataRoutes, context, error);
+    context = getStaticContextFromError(
+      staticHandler.dataRoutes,
+      context,
+      error
+    );
 
     // Handle Remix separation of Error versus Catch boundaries
     differentiateCatchVersusErrorBoundaries(build, context);
@@ -256,16 +256,16 @@ async function handleDocumentRequest({
 async function handleResourceRequest({
   request,
   serverMode,
-  queryRoute,
+  staticHandler,
 }: {
   request: Request;
   serverMode: ServerMode;
-  queryRoute: StaticHandler["queryRoute"];
+  staticHandler: StaticHandler;
 }): Promise<Response> {
   try {
     // TODO: Not specifying a routeId will internally choose the leaf/target
     // match.  Clean this API up
-    let state = await queryRoute(request);
+    let state = await staticHandler.queryRoute(request);
     if (state instanceof Response) {
       return state;
     }
