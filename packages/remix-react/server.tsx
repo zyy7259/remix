@@ -1,36 +1,14 @@
-import type { DataRouteObject } from "@remix-run/router";
 import type { ReactElement } from "react";
 import * as React from "react";
 import { unstable_DataStaticRouter as DataStaticRouter } from "react-router-dom/server";
 
-import { RemixContext, RemixRoute } from "./components";
+import { RemixContext } from "./components";
 import type { EntryContext } from "./entry";
-import type { RouteModules } from "./routeModules";
-import { RemixRouteError } from "./rrr";
+import { createStaticRouterDataRoutes } from "./rrr";
 
 export interface RemixServerProps {
   context: EntryContext;
   url: string | URL;
-}
-
-function adaptElements(
-  dataRoutes: DataRouteObject[],
-  routeModules: RouteModules
-) {
-  return dataRoutes.map((dataRoute) => {
-    let adaptedDataRoute: DataRouteObject = {
-      ...dataRoute,
-      element: dataRoute.element ? <RemixRoute id={dataRoute.id} /> : undefined,
-      errorElement: dataRoute.errorElement ? (
-        <RemixRouteError id={dataRoute.id} />
-      ) : undefined,
-      children:
-        dataRoute.children != null
-          ? adaptElements(dataRoute.children, routeModules)
-          : undefined,
-    };
-    return adaptedDataRoute;
-  });
 }
 
 /**
@@ -43,8 +21,8 @@ export function RemixServer({ context, url }: RemixServerProps): ReactElement {
     url = new URL(url);
   }
 
-  let { manifest, routeModules, routes, serverHandoffString } = context;
-  let dataRoutes = adaptElements(routes, routeModules);
+  let { manifest, routeModules, serverHandoffString } = context;
+  let dataRoutes = createStaticRouterDataRoutes(manifest.routes, routeModules);
 
   return (
     <RemixContext.Provider

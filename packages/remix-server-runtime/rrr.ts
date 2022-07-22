@@ -1,21 +1,23 @@
 import type { DataRouteObject, StaticHandlerContext } from "@remix-run/router";
 import { isRouteErrorResponse } from "@remix-run/router";
-import { ServerBuild } from "./build";
 
+import type { ServerBuild } from "./build";
 import type { AppLoadContext } from "./data";
 import { callRouteAction, callRouteLoader } from "./data";
 import type { ServerRouteManifest } from "./routes";
 
-export function createServerDataRoutes(
+// Convert the Remix ServerManifest into DataRouteObject's for use with
+// createStaticHandler
+export function createStaticHandlerDataRoutes(
   manifest: ServerRouteManifest,
   loadContext?: AppLoadContext,
   parentId?: string
 ): DataRouteObject[] {
-  return Object.entries(manifest)
-    .filter(([, route]) => route.parentId === parentId)
-    .map(([id, route]) => ({
+  return Object.values(manifest)
+    .filter((route) => route.parentId === parentId)
+    .map((route) => ({
       caseSensitive: route.caseSensitive,
-      children: createServerDataRoutes(manifest, loadContext, id),
+      children: createStaticHandlerDataRoutes(manifest, loadContext, route.id),
       // TODO: We're on the server here and are currently framework agnostic.
       // Add true here and then once we get into UI land we can adapt with the
       // right components

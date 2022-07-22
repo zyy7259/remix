@@ -29,58 +29,79 @@ import invariant from "./invariant";
 // over the wire manifest routes (knows about modules)     agnostic
 // data browser routes (knows element/errorElement)        framework specific
 
-export function createClientDataRoute(
-  entryRoute: EntryRoute,
-  routeModulesCache: RouteModules
-): DataRouteObject {
-  let fetchLoader = createLoader(entryRoute, routeModulesCache);
-  let loader: LoaderFunction = async ({ request, params }) => {
-    // TODO: Note that we don't have GET submissions anymore - anything we
-    // need to do for backwards compatibility?
-    let result = await fetchLoader({ request, params });
-    return result;
-  };
-
-  let action: ActionFunction | undefined = undefined;
-  if (entryRoute.hasAction) {
-    let fetchAction = createAction(entryRoute, routeModulesCache);
-    let clientAction: ActionFunction = async ({ request, params }) => {
-      let result = await fetchAction({ request, params });
-      return result;
-    };
-    action = clientAction;
-  }
-
-  return {
-    caseSensitive: !!entryRoute.caseSensitive,
-    element: <RemixRoute id={entryRoute.id} />,
-    errorElement: <RemixRouteError id={entryRoute.id} />,
-    id: entryRoute.id,
-    path: entryRoute.path,
-    index: entryRoute.index,
-    loader,
-    action,
-    // TODO: Implement this
-    shouldRevalidate: undefined,
-  };
-}
-
-export function createClientDataRoutes(
-  routeManifest: RouteManifest<EntryRoute>,
-  routeModulesCache: RouteModules,
+// Convert the Remix AssetsManifest into DataRouteObject's for use with
+// DataStaticRouter
+export function createStaticRouterDataRoutes(
+  manifest: RouteManifest<EntryRoute>,
+  routeModules: RouteModules,
   parentId?: string
 ): DataRouteObject[] {
-  return Object.keys(routeManifest)
-    .filter((key) => routeManifest[key].parentId === parentId)
-    .map((key) => {
-      let route = createClientDataRoute(routeManifest[key], routeModulesCache);
-      let children = createClientDataRoutes(
-        routeManifest,
-        routeModulesCache,
-        route.id
-      );
-      if (children.length > 0) route.children = children;
-      return route;
+  return Object.values(manifest)
+    .filter((route) => route.parentId === parentId)
+    .map((route) => ({
+      caseSensitive: route.caseSensitive,
+      children: createStaticRouterDataRoutes(manifest, routeModules, route.id),
+      element: <RemixRoute id={route.id} />,
+      errorElement:
+        route.id === "root" ||
+        routeModules[route.id].ErrorBoundary ||
+        routeModules[route.id].CatchBoundary ? (
+          <RemixRouteError id={route.id} />
+        ) : undefined,
+      id: route.id,
+      index: route.index,
+      path: route.path,
+      // Note: we don't need loader/action/shouldRevalidate on these routes
+      // since they're for a static render
+      handle: routeModules[route.id].handle,
+    }));
+}
+
+// Convert the Remix AssetsManifest into DataRouteObject's for use with
+// DataBrowserRouter
+export function createBrowserRouterDataRoutes(
+  manifest: RouteManifest<EntryRoute>,
+  routeModules: RouteModules,
+  parentId?: string
+): DataRouteObject[] {
+  return Object.values(manifest)
+    .filter((route) => route.parentId === parentId)
+    .map((route) => {
+      let fetchLoader = createLoader(route, routeModules);
+      let loader: LoaderFunction = async ({ request, params }) => {
+        // TODO: Note that we don't have GET submissions anymore - anything we
+        // need to do for backwards compatibility?
+        let result = await fetchLoader({ request, params });
+        return result;
+      };
+
+      let action: ActionFunction | undefined = undefined;
+      if (route.hasAction) {
+        let fetchAction = createAction(route, routeModules);
+        let clientAction: ActionFunction = async ({ request, params }) => {
+          let result = await fetchAction({ request, params });
+          return result;
+        };
+        action = clientAction;
+      }
+
+      return {
+        caseSensitive: route.caseSensitive,
+        children: createBrowserRouterDataRoutes(
+          manifest,
+          routeModules,
+          route.id
+        ),
+        element: <RemixRoute id={route.id} />,
+        errorElement: <RemixRouteError id={route.id} />,
+        id: route.id,
+        index: route.index,
+        path: route.path,
+        action,
+        loader,
+        // TODO: Implement this
+        shouldRevalidate: undefined,
+      };
     });
 }
 

@@ -8,7 +8,7 @@ import { RemixContext } from "./components";
 import type { RemixContextObject } from "./entry";
 import type { SerializedError } from "./errors";
 import type { RouteModules } from "./routeModules";
-import { createClientDataRoutes } from "./rrr";
+import { createBrowserRouterDataRoutes } from "./rrr";
 
 /* eslint-disable prefer-let/prefer-let */
 declare global {
@@ -43,7 +43,7 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   }
 
   let routes = React.useMemo(
-    () => createClientDataRoutes(manifest.routes, routeModules),
+    () => createBrowserRouterDataRoutes(manifest.routes, routeModules),
     [manifest.routes, routeModules]
   );
 

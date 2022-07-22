@@ -18,7 +18,7 @@ import { getDocumentHeaders } from "./headers";
 import { ServerMode, isServerMode } from "./mode";
 import { matchServerRoutes } from "./routeMatching";
 import {
-  createServerDataRoutes,
+  createStaticHandlerDataRoutes,
   differentiateCatchVersusErrorBoundaries,
 } from "./rrr";
 import { createRoutes } from "./routes";
@@ -46,7 +46,7 @@ export const createRequestHandler: CreateRequestHandlerFunction = (
     let url = new URL(request.url);
     let matches = matchServerRoutes(routes, url.pathname);
 
-    let serverRoutes = createServerDataRoutes(build.routes, loadContext);
+    let serverRoutes = createStaticHandlerDataRoutes(build.routes, loadContext);
     let { dataRoutes, query, queryRoute } =
       unstable_createStaticHandler(serverRoutes);
 
@@ -200,7 +200,6 @@ async function handleDocumentRequest({
   let entryContext: EntryContext = {
     manifest: build.assets,
     routeModules: createEntryRouteModules(build.routes),
-    routes: dataRoutes,
     staticHandlerContext: context,
     serverHandoffString: createServerHandoffString(context),
   };

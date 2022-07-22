@@ -1,4 +1,4 @@
-import type { DataRouteObject, StaticHandlerContext } from "@remix-run/router";
+import type { StaticHandlerContext } from "@remix-run/router";
 
 import type { RouteManifest, EntryRoute } from "./routes";
 import type { RouteModules } from "./routeModules";
@@ -13,7 +13,6 @@ export interface RemixContextObject {
 // Additional React-Router information needed at runtime, but not hydrated
 // through RemixContext
 export interface EntryContext extends RemixContextObject {
-  routes: DataRouteObject[];
   staticHandlerContext: StaticHandlerContext;
 }
 
