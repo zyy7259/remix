@@ -3,12 +3,13 @@
 import type { Location } from "history";
 import type { ComponentType } from "react";
 import type { Params } from "react-router"; // TODO: import/export from react-router-dom
+import type { DataRouteObject } from "@remix-run/router";
 
 import type { AppData } from "./data";
 import type { LinkDescriptor } from "./links";
-import type { ClientRoute, EntryRoute } from "./routes";
 import type { RouteData } from "./routeData";
 import type { Submission } from "./transition";
+import type { AssetsManifest } from "./entry";
 
 export interface RouteModules {
   [routeId: string]: RouteModule;
@@ -117,7 +118,8 @@ export type RouteComponent = ComponentType<{}>;
 export type RouteHandle = any;
 
 export async function loadRouteModule(
-  route: EntryRoute | ClientRoute,
+  route: DataRouteObject,
+  manifest: AssetsManifest,
   routeModulesCache: RouteModules
 ): Promise<RouteModule> {
   if (route.id in routeModulesCache) {
@@ -125,7 +127,7 @@ export async function loadRouteModule(
   }
 
   try {
-    let routeModule = await import(route.module);
+    let routeModule = await import(manifest.routes[route.id].module);
     routeModulesCache[route.id] = routeModule;
     return routeModule;
   } catch (error) {

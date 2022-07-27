@@ -1,5 +1,4 @@
 import type { ComponentType, ReactNode } from "react";
-import * as React from "react";
 import type { ActionFunction, LoaderFunction, Params } from "react-router";
 import { ErrorResponse } from "@remix-run/router";
 
@@ -12,9 +11,9 @@ import {
   isRedirectResponse,
 } from "./data";
 import type { Submission } from "./transition";
-import { CatchValue, TransitionRedirect } from "./transition";
+import { TransitionRedirect } from "./transition";
 import { prefetchStyleLinks } from "./links";
-import invariant from "./invariant";
+import type { AssetsManifest } from "./entry";
 
 export interface RouteManifest<Route> {
   [routeId: string]: Route;
@@ -64,94 +63,28 @@ export type RouteDataFunction = {
   }): Promise<any> | any;
 };
 
-export interface ClientRoute extends Route {
-  loader?: LoaderFunction;
-  action: ActionFunction;
-  shouldReload?: ShouldReloadFunction;
-  ErrorBoundary?: any;
-  CatchBoundary?: any;
-  children?: ClientRoute[];
-  element: ReactNode;
-  module: string;
-  hasLoader: boolean;
-}
-
 export type RemixRouteComponentType = ComponentType<{ id: string }>;
-
-export function createClientRoute(
-  entryRoute: EntryRoute,
-  routeModulesCache: RouteModules,
-  Component: RemixRouteComponentType
-): ClientRoute {
-  return {
-    caseSensitive: !!entryRoute.caseSensitive,
-    element: <Component id={entryRoute.id} />,
-    id: entryRoute.id,
-    path: entryRoute.path,
-    index: entryRoute.index,
-    module: entryRoute.module,
-    loader: createLoader(entryRoute, routeModulesCache),
-    action: createAction(entryRoute, routeModulesCache),
-    shouldReload: createShouldReload(entryRoute, routeModulesCache),
-    ErrorBoundary: entryRoute.hasErrorBoundary,
-    CatchBoundary: entryRoute.hasCatchBoundary,
-    hasLoader: entryRoute.hasLoader,
-  };
-}
-
-export function createClientRoutes(
-  routeManifest: RouteManifest<EntryRoute>,
-  routeModulesCache: RouteModules,
-  Component: RemixRouteComponentType,
-  parentId?: string
-): ClientRoute[] {
-  return Object.keys(routeManifest)
-    .filter((key) => routeManifest[key].parentId === parentId)
-    .map((key) => {
-      let route = createClientRoute(
-        routeManifest[key],
-        routeModulesCache,
-        Component
-      );
-      let children = createClientRoutes(
-        routeManifest,
-        routeModulesCache,
-        Component,
-        route.id
-      );
-      if (children.length > 0) route.children = children;
-      return route;
-    });
-}
-
-function createShouldReload(route: EntryRoute, routeModules: RouteModules) {
-  let shouldReload: ShouldReloadFunction = (arg) => {
-    let module = routeModules[route.id];
-    invariant(module, `Expected route module to be loaded for ${route.id}`);
-    if (module.unstable_shouldReload) {
-      return module.unstable_shouldReload(arg);
-    }
-    return true;
-  };
-
-  return shouldReload;
-}
 
 async function loadRouteModuleWithBlockingLinks(
   route: EntryRoute,
+  manifest: AssetsManifest,
   routeModules: RouteModules
 ) {
-  let routeModule = await loadRouteModule(route, routeModules);
+  let routeModule = await loadRouteModule(route, manifest, routeModules);
   await prefetchStyleLinks(routeModule);
   return routeModule;
 }
 
-export function createLoader(route: EntryRoute, routeModules: RouteModules) {
+export function createLoader(
+  route: EntryRoute,
+  manifest: AssetsManifest,
+  routeModules: RouteModules
+) {
   let loader: LoaderFunction = async ({ request }) => {
     if (route.hasLoader) {
       let [result] = await Promise.all([
         fetchData(request, route.id, false),
-        loadRouteModuleWithBlockingLinks(route, routeModules),
+        loadRouteModuleWithBlockingLinks(route, manifest, routeModules),
       ]);
 
       if (result instanceof Error) throw result;
@@ -169,14 +102,18 @@ export function createLoader(route: EntryRoute, routeModules: RouteModules) {
 
       return result;
     } else {
-      await loadRouteModuleWithBlockingLinks(route, routeModules);
+      await loadRouteModuleWithBlockingLinks(route, manifest, routeModules);
     }
   };
 
   return loader;
 }
 
-export function createAction(route: EntryRoute, routeModules: RouteModules) {
+export function createAction(
+  route: EntryRoute,
+  manifest: AssetsManifest,
+  routeModules: RouteModules
+) {
   let action: ActionFunction = async ({ request }) => {
     if (!route.hasAction) {
       console.error(
@@ -194,7 +131,7 @@ export function createAction(route: EntryRoute, routeModules: RouteModules) {
     let redirect = await checkRedirect(result);
     if (redirect) return redirect;
 
-    await loadRouteModuleWithBlockingLinks(route, routeModules);
+    await loadRouteModuleWithBlockingLinks(route, manifest, routeModules);
 
     if (isCatchResponse(result)) {
       throw new ErrorResponse(

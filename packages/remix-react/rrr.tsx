@@ -14,6 +14,7 @@ import {
   RemixRootDefaultErrorBoundary,
 } from "./errorBoundaries";
 import { RemixRoute, useRemixContext } from "./components";
+import type { AssetsManifest } from "./entry";
 import invariant from "./invariant";
 
 // TODO:
@@ -60,31 +61,18 @@ export function createStaticRouterDataRoutes(
 // Convert the Remix AssetsManifest into DataRouteObject's for use with
 // DataBrowserRouter
 export function createBrowserRouterDataRoutes(
-  manifest: RouteManifest<EntryRoute>,
+  manifest: AssetsManifest,
   routeModules: RouteModules,
   parentId?: string
 ): DataRouteObject[] {
-  return Object.values(manifest)
+  return Object.values(manifest.routes)
     .filter((route) => route.parentId === parentId)
     .map((route) => {
-      let fetchLoader = createLoader(route, routeModules);
-      let loader: LoaderFunction = async ({ request, params }) => {
-        // TODO: Note that we don't have GET submissions anymore - anything we
-        // need to do for backwards compatibility?
-        let result = await fetchLoader({ request, params });
-        return result;
-      };
-
-      let action: ActionFunction | undefined = undefined;
-      if (route.hasAction) {
-        let fetchAction = createAction(route, routeModules);
-        let clientAction: ActionFunction = async ({ request, params }) => {
-          let result = await fetchAction({ request, params });
-          return result;
-        };
-        action = clientAction;
-      }
-
+      // Routes always have loaders to fetch JS bundles
+      let loader = createLoader(route, manifest, routeModules);
+      let action = route.hasAction
+        ? createAction(route, manifest, routeModules)
+        : undefined;
       return {
         caseSensitive: route.caseSensitive,
         children: createBrowserRouterDataRoutes(
@@ -92,13 +80,23 @@ export function createBrowserRouterDataRoutes(
           routeModules,
           route.id
         ),
+        // RemixRoute and RemixRouteError are used here since at app
+        // initialization we don't have all the modules yet (we only have
+        // modules for the SSR'd routes), so we can't directly access the
+        // components and error boundaries.  These components defer that access
+        // until a given route is rendered at which point they can be grabbed
+        // from the now-populated routeModules.
         element: <RemixRoute id={route.id} />,
-        errorElement: <RemixRouteError id={route.id} />,
+        errorElement:
+          route.hasCatchBoundary || route.hasErrorBoundary ? (
+            <RemixRouteError id={route.id} />
+          ) : null,
         id: route.id,
         index: route.index,
         path: route.path,
-        action,
+        // Routes always have loaders to fetch JS bundles
         loader,
+        action,
         // TODO: Implement this
         shouldRevalidate: undefined,
       };

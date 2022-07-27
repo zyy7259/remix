@@ -43,8 +43,8 @@ export function RemixBrowser(_props: RemixBrowserProps): ReactElement {
   }
 
   let routes = React.useMemo(
-    () => createBrowserRouterDataRoutes(manifest.routes, routeModules),
-    [manifest.routes, routeModules]
+    () => createBrowserRouterDataRoutes(manifest, routeModules),
+    [manifest, routeModules]
   );
 
   return (

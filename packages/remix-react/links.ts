@@ -2,11 +2,9 @@
 // and leverage `react-router` here instead
 import type { Location } from "history";
 import { parsePath } from "history";
+import type { DataRouteMatch } from "react-router-dom";
 
 import type { AssetsManifest } from "./entry";
-import type { ClientRoute } from "./routes";
-import type { RouteMatch } from "./routeMatching";
-// import { matchClientRoutes } from "./routeMatching";
 import type { RouteModules, RouteModule } from "./routeModules";
 import { loadRouteModule } from "./routeModules";
 
@@ -225,7 +223,7 @@ export type LinkDescriptor = HtmlLinkDescriptor | PrefetchPageDescriptor;
  * loaded already.
  */
 export function getLinksForMatches(
-  matches: RouteMatch<ClientRoute>[],
+  matches: DataRouteMatch[],
   routeModules: RouteModules,
   manifest: AssetsManifest
 ): LinkDescriptor[] {
@@ -324,12 +322,13 @@ export function isHtmlLinkDescriptor(
 }
 
 export async function getStylesheetPrefetchLinks(
-  matches: RouteMatch<ClientRoute>[],
+  matches: DataRouteMatch[],
+  manifest: AssetsManifest,
   routeModules: RouteModules
 ): Promise<HtmlLinkDescriptor[]> {
   let links = await Promise.all(
     matches.map(async (match) => {
-      let mod = await loadRouteModule(match.route, routeModules);
+      let mod = await loadRouteModule(match.route, manifest, routeModules);
       return mod.links ? mod.links() : [];
     })
   );
@@ -348,19 +347,20 @@ export async function getStylesheetPrefetchLinks(
 // This is ridiculously identical to transition.ts `filterMatchesToLoad`
 export function getNewMatchesForLinks(
   page: string,
-  nextMatches: RouteMatch<ClientRoute>[],
-  currentMatches: RouteMatch<ClientRoute>[],
+  nextMatches: DataRouteMatch[],
+  currentMatches: DataRouteMatch[],
+  manifest: AssetsManifest,
   location: Location,
   mode: "data" | "assets"
-): RouteMatch<ClientRoute>[] {
+): DataRouteMatch[] {
   let path = parsePathPatch(page);
 
-  let isNew = (match: RouteMatch<ClientRoute>, index: number) => {
+  let isNew = (match: DataRouteMatch, index: number) => {
     if (!currentMatches[index]) return true;
     return match.route.id !== currentMatches[index].route.id;
   };
 
-  let matchPathChanged = (match: RouteMatch<ClientRoute>, index: number) => {
+  let matchPathChanged = (match: DataRouteMatch, index: number) => {
     return (
       // param change, /users/123 -> /users/456
       currentMatches[index].pathname !== match.pathname ||
@@ -373,12 +373,14 @@ export function getNewMatchesForLinks(
 
   // NOTE: keep this mostly up-to-date w/ the transition data diff, but this
   // version doesn't care about submissions
+  // TODO: Export util from router to share this logic
   let newMatches =
     mode === "data" && location.search !== path.search
       ? // this is really similar to stuff in transition.ts, maybe somebody smarter
         // than me (or in less of a hurry) can share some of it. You're the best.
         nextMatches.filter((match, index) => {
-          if (!match.route.hasLoader) {
+          let manifestRoute = manifest.routes[match.route.id];
+          if (!manifestRoute.hasLoader) {
             return false;
           }
 
@@ -386,21 +388,22 @@ export function getNewMatchesForLinks(
             return true;
           }
 
-          if (match.route.shouldReload) {
-            return match.route.shouldReload({
-              params: match.params,
-              prevUrl: new URL(
-                location.pathname + location.search + location.hash,
-                window.origin
-              ),
-              url: new URL(page, window.origin),
-            });
-          }
+          // if (match.route.shouldReload) {
+          //   return match.route.shouldReload({
+          //     params: match.params,
+          //     prevUrl: new URL(
+          //       location.pathname + location.search + location.hash,
+          //       window.origin
+          //     ),
+          //     url: new URL(page, window.origin),
+          //   });
+          // }
           return true;
         })
       : nextMatches.filter((match, index) => {
+          let manifestRoute = manifest.routes[match.route.id];
           return (
-            (mode === "assets" || match.route.hasLoader) &&
+            (mode === "assets" || manifestRoute.hasLoader) &&
             (isNew(match, index) || matchPathChanged(match, index))
           );
         });
@@ -410,7 +413,7 @@ export function getNewMatchesForLinks(
 
 export function getDataLinkHrefs(
   page: string,
-  matches: RouteMatch<ClientRoute>[],
+  matches: DataRouteMatch[],
   manifest: AssetsManifest
 ): string[] {
   let path = parsePathPatch(page);
@@ -427,7 +430,7 @@ export function getDataLinkHrefs(
 }
 
 export function getModuleLinkHrefs(
-  matches: RouteMatch<ClientRoute>[],
+  matches: DataRouteMatch[],
   manifestPatch: AssetsManifest
 ): string[] {
   return dedupeHrefs(
@@ -448,7 +451,7 @@ export function getModuleLinkHrefs(
 // need to include them in a page prefetch, this gives us the list to remove
 // while deduping.
 function getCurrentPageModulePreloadHrefs(
-  matches: RouteMatch<ClientRoute>[],
+  matches: DataRouteMatch[],
   manifest: AssetsManifest
 ): string[] {
   return dedupeHrefs(

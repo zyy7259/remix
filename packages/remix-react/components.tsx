@@ -8,15 +8,16 @@ import type {
   DataRouteMatch,
   FormProps,
   LinkProps,
-  Location,
   Navigation,
   NavLinkProps,
   Params,
   SubmitFunction,
 } from "react-router-dom";
 import {
+  matchRoutes,
   useFetcher as useRouterFetcher,
   useFetchers as useRouterFetchers,
+  UNSAFE_DataRouterContext as DataRouterContext,
   UNSAFE_DataRouterStateContext as DataRouterStateContext,
 } from "react-router-dom";
 import {
@@ -28,7 +29,7 @@ import {
 } from "react-router-dom";
 
 import type { AppData } from "./data";
-import type { AssetsManifest, RemixContextObject } from "./entry";
+import type { RemixContextObject } from "./entry";
 import invariant from "./invariant";
 import {
   getDataLinkHrefs,
@@ -40,12 +41,7 @@ import {
 } from "./links";
 import type { HtmlLinkDescriptor, PrefetchPageDescriptor } from "./links";
 import { createHtml } from "./markup";
-import type { ClientRoute } from "./routes";
-import { createClientRoute } from "./routes";
-import { createClientRoutes } from "./routes";
 import type { RouteData } from "./routeData";
-import type { RouteMatch as BaseRouteMatch } from "./routeMatching";
-import { matchClientRoutes } from "./routeMatching";
 import type { HtmlMetaDescriptor } from "./routeModules";
 import type {
   Transition,
@@ -53,6 +49,24 @@ import type {
   ActionSubmission,
   LoaderSubmission,
 } from "./transition";
+
+function useDataRouterContext() {
+  let context = React.useContext(DataRouterContext);
+  invariant(
+    context,
+    "You must render this element inside a <DataRouterContext.Provider> element"
+  );
+  return context;
+}
+
+function useDataRouterStateContext() {
+  let context = React.useContext(DataRouterStateContext);
+  invariant(
+    context,
+    "You must render this element inside a <DataRouterStateContext.Provider> element"
+  );
+  return context;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // RemixContext
@@ -62,61 +76,15 @@ export const RemixContext = React.createContext<RemixContextObject | undefined>(
 );
 RemixContext.displayName = "Remix";
 
-interface UseRemixContextType extends RemixContextObject {
-  matches: BaseRouteMatch<ClientRoute>[];
-  clientRoutes: ClientRoute[];
-}
-
 // FIXME: Unexport this once RemixRouteError moves into this file
-export function useRemixContext(): UseRemixContextType {
+export function useRemixContext(): RemixContextObject {
   let context = React.useContext(RemixContext);
   invariant(context, "You must render this element inside a <Remix> element");
-  let dataRouterStateContext = React.useContext(DataRouterStateContext);
-  invariant(
-    dataRouterStateContext,
-    "You must render this element inside a <DataRouterStateProvider> element"
-  );
-
-  let { manifest, routeModules } = context;
-  let { matches: routerMatches } = dataRouterStateContext;
-
-  let clientRoutes = React.useMemo(
-    () => createClientRoutes(manifest.routes, routeModules, RemixRoute),
-    [manifest, routeModules]
-  );
-
-  let matches = React.useMemo(
-    () =>
-      routerMatches.map((match: DataRouteMatch) => {
-        let clientMatch: BaseRouteMatch<ClientRoute> = {
-          ...match,
-          route: createClientRoute(
-            manifest.routes[match.route.id],
-            routeModules,
-            RemixRoute
-          ),
-        };
-        return clientMatch;
-      }),
-    [routerMatches, manifest, routeModules]
-  );
-
-  return {
-    ...context,
-    clientRoutes,
-    matches,
-  };
+  return context;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // RemixRoute
-
-function DefaultRouteComponent({ id }: { id: string }): React.ReactElement {
-  throw new Error(
-    `Route "${id}" has no component! Please go add a \`default\` export in the route module file.\n` +
-      "If you were trying to navigate or submit to a resource route, use `<a>` instead of `<Link>` or `<Form reloadDocument>`."
-  );
-}
 
 export function RemixRoute({ id }: { id: string }) {
   let { routeModules } = useRemixContext();
@@ -128,7 +96,14 @@ export function RemixRoute({ id }: { id: string }) {
   );
 
   let { default: Component } = routeModules[id];
-  return Component ? <Component /> : <DefaultRouteComponent id={id} />;
+
+  invariant(
+    Component,
+    `Route "${id}" has no component! Please go add a \`default\` export in the route module file.\n` +
+      "If you were trying to navigate or submit to a resource route, use `<a>` instead of `<Link>` or `<Form reloadDocument>`."
+  );
+
+  return <Component />;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -286,7 +261,8 @@ export function composeEventHandlers<
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Links() {
-  let { matches, routeModules, manifest } = useRemixContext();
+  let { matches } = useDataRouterStateContext();
+  let { routeModules, manifest } = useRemixContext();
 
   let links = React.useMemo(
     () => getLinksForMatches(matches, routeModules, manifest),
@@ -352,10 +328,10 @@ export function PrefetchPageLinks({
   page,
   ...dataLinkProps
 }: PrefetchPageDescriptor) {
-  let { clientRoutes } = useRemixContext();
+  let { router } = useDataRouterContext();
   let matches = React.useMemo(
-    () => matchClientRoutes(clientRoutes, page),
-    [clientRoutes, page]
+    () => matchRoutes(router.routes, page),
+    [router.routes, page]
   );
 
   if (!matches) {
@@ -368,22 +344,24 @@ export function PrefetchPageLinks({
   );
 }
 
-function usePrefetchedStylesheets(matches: BaseRouteMatch<ClientRoute>[]) {
-  let { routeModules } = useRemixContext();
+function usePrefetchedStylesheets(matches: DataRouteMatch[]) {
+  let { manifest, routeModules } = useRemixContext();
 
   let [styleLinks, setStyleLinks] = React.useState<HtmlLinkDescriptor[]>([]);
 
   React.useEffect(() => {
     let interrupted: boolean = false;
 
-    getStylesheetPrefetchLinks(matches, routeModules).then((links) => {
-      if (!interrupted) setStyleLinks(links);
-    });
+    getStylesheetPrefetchLinks(matches, manifest, routeModules).then(
+      (links) => {
+        if (!interrupted) setStyleLinks(links);
+      }
+    );
 
     return () => {
       interrupted = true;
     };
-  }, [matches, routeModules]);
+  }, [matches, manifest, routeModules]);
 
   return styleLinks;
 }
@@ -393,19 +371,36 @@ function PrefetchPageLinksImpl({
   matches: nextMatches,
   ...linkProps
 }: PrefetchPageDescriptor & {
-  matches: BaseRouteMatch<ClientRoute>[];
+  matches: DataRouteMatch[];
 }) {
   let location = useLocation();
-  let { matches, manifest } = useRemixContext();
+  let { matches } = useDataRouterStateContext();
+  let { manifest } = useRemixContext();
 
   let newMatchesForData = React.useMemo(
-    () => getNewMatchesForLinks(page, nextMatches, matches, location, "data"),
-    [page, nextMatches, matches, location]
+    () =>
+      getNewMatchesForLinks(
+        page,
+        nextMatches,
+        matches,
+        manifest,
+        location,
+        "data"
+      ),
+    [page, nextMatches, matches, manifest, location]
   );
 
   let newMatchesForAssets = React.useMemo(
-    () => getNewMatchesForLinks(page, nextMatches, matches, location, "assets"),
-    [page, nextMatches, matches, location]
+    () =>
+      getNewMatchesForLinks(
+        page,
+        nextMatches,
+        matches,
+        manifest,
+        location,
+        "assets"
+      ),
+    [page, nextMatches, matches, manifest, location]
   );
 
   let dataHrefs = React.useMemo(
@@ -445,9 +440,8 @@ function PrefetchPageLinksImpl({
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Meta() {
-  let { matches, routeModules } = useRemixContext();
-  let routerState = React.useContext(DataRouterStateContext);
-  invariant(routerState, "<Meta> must be rendered inside a <DataRouter>");
+  let { loaderData, matches } = useDataRouterStateContext();
+  let { routeModules } = useRemixContext();
   let location = useLocation();
 
   let meta: HtmlMetaDescriptor = {};
@@ -455,7 +449,7 @@ export function Meta() {
 
   for (let match of matches) {
     let routeId = match.route.id;
-    let data = routerState.loaderData[routeId];
+    let data = loaderData[routeId];
     let params = match.params;
 
     let routeModule = routeModules[routeId];
@@ -540,8 +534,9 @@ type ScriptProps = Omit<
  * @see https://remix.run/api/remix#meta-links-scripts
  */
 export function Scripts(props: ScriptProps) {
-  let { manifest, matches, clientRoutes, serverHandoffString } =
-    useRemixContext();
+  let { router } = useDataRouterContext();
+  let { matches, navigation } = useDataRouterStateContext();
+  let { manifest, serverHandoffString } = useRemixContext();
 
   React.useEffect(() => {
     isHydrated = true;
@@ -589,15 +584,18 @@ window.__remixRouteModules = {${matches
   // avoid waterfall when importing the next route module
   let nextMatches = React.useMemo(() => {
     // TODO: Can this leverage useNavigation.location?
-    // if (pendingLocation) {
-    //   // FIXME: can probably use transitionManager `nextMatches`
-    //   let matches = matchClientRoutes(clientRoutes, pendingLocation);
-    //   invariant(matches, `No routes match path "${pendingLocation.pathname}"`);
-    //   return matches;
-    // }
+    // FIXME: can probably use transitionManager `nextMatches`
+    if (navigation.location) {
+      let matches = matchRoutes(router.routes, navigation.location);
+      invariant(
+        matches,
+        `No routes match path "${navigation.location.pathname}"`
+      );
+      return matches;
+    }
 
     return [];
-  }, [clientRoutes]);
+  }, [router.routes, navigation]);
 
   let routePreloads = matches
     .concat(nextMatches)
