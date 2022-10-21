@@ -705,6 +705,11 @@ function isIndexRequestUrl(url: URL) {
   return url.searchParams.getAll("index").some((param) => param === "");
 }
 
+// Return the correct single match for a route (used for submission
+// navigations and  and fetchers)
+// - ?index should try to match the leaf index route
+// - otherwise it should match the deepest "path contributing" match, which
+//   ignores index and pathless routes
 function getRequestMatch(url: URL, matches: RouteMatch<ServerRoute>[]) {
   let match = matches.slice(-1)[0];
 
@@ -715,11 +720,11 @@ function getRequestMatch(url: URL, matches: RouteMatch<ServerRoute>[]) {
   return getPathContributingMatches(matches).slice(-1)[0];
 }
 
+// Filter index and pathless routes when looking for submission targets
 function getPathContributingMatches(matches: RouteMatch<ServerRoute>[]) {
   return matches.filter(
     (match, index) =>
-      index === 0 ||
-      (!match.route.index && match.route.path && match.route.path.length > 0)
+      index === 0 || (match.route.path && match.route.path.length > 0)
   );
 }
 

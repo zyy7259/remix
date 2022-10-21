@@ -441,6 +441,27 @@ test.describe("Forms", () => {
             return <h3>Pathless Layout Index</h3>
           }
         `,
+
+        "app/routes/nested/file/index.jsx": js`
+          import { json } from '@remix-run/server-runtime'
+          import { Form, Outlet, useActionData } from '@remix-run/react'
+
+          export async function action({ request }) {
+            return json({ submitted: true });
+          }
+          export default function () {
+            let data = useActionData();
+            return (
+              <>
+                <Form method="post">
+                  <button type="submit">Submit</button>
+                </Form>
+                <Outlet />
+                <p>{data?.submitted === true ? 'Submitted - Yes' : 'Submitted - No'}</p>
+              </>
+            );
+          }
+        `,
       },
     });
 
@@ -1001,6 +1022,19 @@ test.describe("Forms", () => {
     // This submission should ignore the index route and the pathless layout
     // route above it and hit the action in routes/pathless-layout-parent.jsx
     await app.clickSubmitButton("/pathless-layout-parent");
+    expect(await app.getHtml()).toMatch("Submitted - Yes");
+  });
+
+  test("routes with index and path are handled on submissions", async ({
+    page,
+  }) => {
+    let app = new PlaywrightFixture(appFixture, page);
+    await app.goto("/nested/file");
+    let html = await app.getHtml();
+    let el = getElement(html, `form`);
+    expect(el.attr("action")).toMatch("/nested/file?index");
+    expect(await app.getHtml()).toMatch("Submitted - No");
+    await app.clickSubmitButton("/nested/file?index");
     expect(await app.getHtml()).toMatch("Submitted - Yes");
   });
 });
