@@ -111,6 +111,8 @@ export function RemixEntry({
     appState: entryComponentDidCatchEmulator,
   } = entryContext;
 
+  console.log("you have entered the Remix zone");
+
   let clientRoutes = React.useMemo(
     () => createClientRoutes(manifest.routes, routeModules, RemixRoute),
     [manifest, routeModules]
