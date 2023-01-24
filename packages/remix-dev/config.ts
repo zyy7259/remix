@@ -9,6 +9,7 @@ import { defineConventionalRoutes } from "./config/routesConvention";
 import { ServerMode, isValidServerMode } from "./config/serverModes";
 import { serverBuildVirtualModule } from "./compiler/virtualModules";
 import { writeConfigDefaults } from "./compiler/utils/tsconfig/write-config-defaults";
+import { flatRoutes } from "./config/flat-routes";
 
 export interface RemixMdxConfig {
   rehypePlugins?: any[];
@@ -30,6 +31,23 @@ export type ServerBuildTarget =
 
 export type ServerModuleFormat = "esm" | "cjs";
 export type ServerPlatform = "node" | "neutral";
+
+type Dev = {
+  port?: number;
+  appServerPort?: number;
+  remixRequestHandlerPath?: string;
+  rebuildPollIntervalMs?: number;
+};
+
+interface FutureConfig {
+  unstable_cssModules: boolean;
+  unstable_cssSideEffectImports: boolean;
+  unstable_dev: boolean | Dev;
+  unstable_vanillaExtract: boolean;
+  v2_errorBoundary: boolean;
+  v2_meta: boolean;
+  v2_routeConvention: boolean;
+}
 
 /**
  * The user-provided config in `remix.config.js`.
@@ -157,6 +175,8 @@ export interface AppConfig {
     | string
     | string[]
     | (() => Promise<string | string[]> | string | string[]);
+
+  future?: Partial<FutureConfig>;
 }
 
 /**
@@ -275,6 +295,8 @@ export interface RemixConfig {
    * The path for the tsconfig file, if present on the root directory.
    */
   tsconfigPath: string | undefined;
+
+  future: FutureConfig;
 }
 
 /**
@@ -285,12 +307,12 @@ export async function readConfig(
   remixRoot?: string,
   serverMode = ServerMode.Production
 ): Promise<RemixConfig> {
-  if (!remixRoot) {
-    remixRoot = process.env.REMIX_ROOT || process.cwd();
-  }
-
   if (!isValidServerMode(serverMode)) {
     throw new Error(`Invalid server mode "${serverMode}"`);
+  }
+
+  if (!remixRoot) {
+    remixRoot = process.env.REMIX_ROOT || process.cwd();
   }
 
   let rootDirectory = path.resolve(remixRoot);
@@ -311,7 +333,7 @@ export async function readConfig(
         appConfigModule = await import(pathToFileURL(configFile).href);
       }
       appConfig = appConfigModule?.default || appConfigModule;
-    } catch (error) {
+    } catch (error: unknown) {
       throw new Error(
         `Error loading Remix config at ${configFile}\n${String(error)}`
       );
@@ -418,20 +440,23 @@ export async function readConfig(
   let routes: RouteManifest = {
     root: { path: "", id: "root", file: rootRouteFile },
   };
+
+  let routesConvention = appConfig.future?.v2_routeConvention
+    ? flatRoutes
+    : defineConventionalRoutes;
+
   if (fse.existsSync(path.resolve(appDirectory, "routes"))) {
-    let conventionalRoutes = defineConventionalRoutes(
+    let conventionalRoutes = routesConvention(
       appDirectory,
       appConfig.ignoredRouteFiles
     );
-    for (let key of Object.keys(conventionalRoutes)) {
-      let route = conventionalRoutes[key];
+    for (let route of Object.values(conventionalRoutes)) {
       routes[route.id] = { ...route, parentId: route.parentId || "root" };
     }
   }
   if (appConfig.routes) {
     let manualRoutes = await appConfig.routes(defineRoutes);
-    for (let key of Object.keys(manualRoutes)) {
-      let route = manualRoutes[key];
+    for (let route of Object.values(manualRoutes)) {
       routes[route.id] = { ...route, parentId: route.parentId || "root" };
     }
   }
@@ -472,6 +497,17 @@ export async function readConfig(
     writeConfigDefaults(tsconfigPath);
   }
 
+  let future: FutureConfig = {
+    unstable_cssModules: appConfig.future?.unstable_cssModules === true,
+    unstable_cssSideEffectImports:
+      appConfig.future?.unstable_cssSideEffectImports === true,
+    unstable_dev: appConfig.future?.unstable_dev ?? false,
+    unstable_vanillaExtract: appConfig.future?.unstable_vanillaExtract === true,
+    v2_errorBoundary: appConfig.future?.v2_errorBoundary === true,
+    v2_meta: appConfig.future?.v2_meta === true,
+    v2_routeConvention: appConfig.future?.v2_routeConvention === true,
+  };
+
   return {
     appDirectory,
     cacheDirectory,
@@ -495,6 +531,7 @@ export async function readConfig(
     mdx,
     watchPaths,
     tsconfigPath,
+    future,
   };
 }
 
