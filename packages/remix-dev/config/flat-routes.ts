@@ -33,6 +33,10 @@ interface RouteInfo extends ConfigRoute {
   segments: string[];
 }
 
+// prettier-ignore
+let routeRegex = /(([+][/\\][^/\\:?*]+)|[/\\](index|route)|(_[^/\\:?*]+))\.(tsx?|jsx?|mdx?)$$/;
+let indexRouteRegex = /((^|[.]|[+]\/)(index|_index))(\/[^/]+)?$|(\/_?index\/)/;
+
 /**
  * Create route configs from a list of routes using the flat routes conventions.
  * @param {string} appDirectory - The absolute root directory the routes were looked up from.
@@ -70,13 +74,14 @@ export function flatRoutesUniversal(
         let conflict = uniqueRoutes.get(uniqueRouteId);
         if (conflict) {
           throw new Error(
-            `Path ${JSON.stringify(fullPath)} defined by route ${JSON.stringify(
-              childRoute.id
-            )} conflicts with route ${JSON.stringify(conflict)}`
+            `Path ${JSON.stringify(fullPath)} defined by route ` +
+              `${JSON.stringify(childRoute.id)} ` +
+              `conflicts with route ${JSON.stringify(conflict)}`
           );
         }
         uniqueRoutes.set(uniqueRouteId, childRoute.id);
       }
+
       if (index) {
         let invalidChildRoutes = Object.values(routeMap).filter(
           (routeInfo) => routeInfo.parentId === childRoute.id
@@ -99,9 +104,7 @@ export function flatRoutesUniversal(
     }
   }
 
-  let routes = defineRoutes(defineNestedRoutes);
-
-  return routes;
+  return defineRoutes(defineNestedRoutes);
 }
 
 export function isIndexRoute(routeId: string) {
@@ -109,7 +112,7 @@ export function isIndexRoute(routeId: string) {
   if (isFlatFile) {
     return routeId.endsWith("_index");
   }
-  return /\/index$/.test(routeId);
+  return indexRouteRegex.test(routeId);
 }
 
 type State =
@@ -128,6 +131,20 @@ export function getRouteSegments(routeId: string) {
   let routeSegment = "";
   let rawRouteSegment = "";
   let state: State = "NORMAL";
+  let hasFolder = /[/\\]/.test(routeId);
+
+  /**
+   * @see https://github.com/remix-run/remix/pull/5160#issuecomment-1402157424
+   */
+  console.log({ routeId });
+
+  if (hasFolder && (routeId.endsWith("/index") || routeId.endsWith("/route"))) {
+    let last = routeId.lastIndexOf(path.sep);
+    if (last >= 0) {
+      routeId = routeId.substring(0, last);
+    }
+  }
+
   let pushRouteSegment = (routeSegment: string) => {
     if (!routeSegment) return;
 
@@ -306,7 +323,7 @@ export function createRoutePath(routeSegments: string[], isIndex: boolean) {
 function getRouteMap(
   appDirectory: string,
   routePaths: string[],
-  prefix: string = "routes"
+  prefix: string
 ) {
   let routeMap = new Map<string, RouteInfo>();
   let nameMap = new Map<string, RouteInfo>();
@@ -330,13 +347,11 @@ function getRouteMap(
   return routeMap;
 }
 
-let routeRegex = /\/(_?(index)|([a-zA-Z0-9_$.[\]-]))\.(tsx?|jsx?|mdx?)/;
 function isRouteModuleFile(filePath: string) {
   // flat files only need correct extension
   let isFlatFile = !filePath.includes(path.sep);
   if (isFlatFile) {
     return routeModuleExts.includes(path.extname(filePath));
   }
-
   return routeRegex.test(filePath);
 }
