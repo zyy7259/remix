@@ -65,6 +65,7 @@ export function createRemixStub(routes: (RouteObject | DataRouteObject)[]) {
         future: {
           unstable_cssModules: false,
           unstable_cssSideEffectImports: false,
+          unstable_dev: false,
           unstable_postcss: false,
           unstable_tailwind: false,
           unstable_vanillaExtract: false,
