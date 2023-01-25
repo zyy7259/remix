@@ -66,7 +66,7 @@ let resolveDev = (
 
   let appServerPort =
     flags.appServerPort ?? (dev === true || dev.appServerPort == undefined)
-      ? fallbackPort
+      ? 3000
       : dev.appServerPort;
   let remixRequestHandlerPath =
     dev === true || dev.remixRequestHandlerPath === undefined
@@ -124,6 +124,7 @@ export let serve = async (
       if (!assetsManifest) return;
       socket.log(`Rebuilt in ${prettyMs(durationMs)}`);
 
+      console.log({ hmrUpdates });
       if (hmrUpdates && hmrUpdates.length > 0) {
         socket.hmr(hmrUpdates);
         return;
