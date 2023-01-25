@@ -890,6 +890,7 @@ export function Scripts(props: ScriptProps) {
           ? `__remixContext.a=${deferredScripts.length};`
           : "");
 
+    // TODO: change to be dynamic imports for routes
     let routeModulesScript = !isStatic
       ? " "
       : `${matches
@@ -1526,6 +1527,15 @@ function convertRouterFetcherToRemixFetcher(
   };
   return fetcher;
 }
+
+export let Hmr = () => {
+  let [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => {
+    setHydrated(true);
+  }, []);
+  if (!hydrated) return null;
+  return <script src={window.__remixContext.dev.hmrRuntime} />;
+};
 
 // Dead Code Elimination magic for production builds.
 // This way devs don't have to worry about doing the NODE_ENV check themselves.
