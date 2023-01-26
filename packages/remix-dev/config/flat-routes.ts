@@ -114,8 +114,6 @@ export function flatRoutesUniversal(
 }
 
 export function isIndexRoute(routeId: string) {
-  let isFlatFile = !routeId.includes(path.posix.sep);
-  if (!isFlatFile) return false;
   return routeId.endsWith("_index");
 }
 
@@ -131,6 +129,7 @@ type State =
 
 export function getRouteSegments(routeId: string) {
   let routeSegments: string[] = [];
+  let rawRouteSegments: string[] = [];
   let index = 0;
   let routeSegment = "";
   let rawRouteSegment = "";
@@ -147,8 +146,8 @@ export function getRouteSegments(routeId: string) {
     }
   }
 
-  let pushRouteSegment = (routeSegment: string) => {
-    if (!routeSegment) return;
+  let pushRouteSegment = (segment: string, rawSegment: string) => {
+    if (!segment) return;
 
     let notSupportedInRR = (segment: string, char: string) => {
       throw new Error(
@@ -157,18 +156,20 @@ export function getRouteSegments(routeId: string) {
       );
     };
 
-    if (rawRouteSegment.includes("*")) {
-      return notSupportedInRR(rawRouteSegment, "*");
+    if (rawSegment.includes("*")) {
+      return notSupportedInRR(rawSegment, "*");
     }
 
-    if (rawRouteSegment.includes(":")) {
-      return notSupportedInRR(rawRouteSegment, ":");
+    if (rawSegment.includes(":")) {
+      return notSupportedInRR(rawSegment, ":");
     }
 
-    if (rawRouteSegment.includes("/")) {
-      return notSupportedInRR(routeSegment, "/");
+    if (rawSegment.includes("/")) {
+      return notSupportedInRR(segment, "/");
     }
-    routeSegments.push(routeSegment);
+
+    routeSegments.push(segment);
+    rawRouteSegments.push(rawSegment);
   };
 
   while (index < routeId.length) {
@@ -178,7 +179,7 @@ export function getRouteSegments(routeId: string) {
     switch (state) {
       case "NORMAL": {
         if (isSegmentSeparator(char)) {
-          pushRouteSegment(routeSegment);
+          pushRouteSegment(routeSegment, rawRouteSegment);
           routeSegment = "";
           rawRouteSegment = "";
           state = "NORMAL";
@@ -186,10 +187,12 @@ export function getRouteSegments(routeId: string) {
         }
         if (char === escapeStart) {
           state = "ESCAPE";
+          rawRouteSegment += char;
           break;
         }
         if (char === optionalStart) {
           state = "OPTIONAL";
+          rawRouteSegment += char;
           break;
         }
         if (!routeSegment && char == paramPrefixChar) {
@@ -210,6 +213,7 @@ export function getRouteSegments(routeId: string) {
       case "ESCAPE": {
         if (char === escapeEnd) {
           state = "NORMAL";
+          rawRouteSegment += char;
           break;
         }
 
@@ -220,13 +224,14 @@ export function getRouteSegments(routeId: string) {
       case "OPTIONAL": {
         if (char === optionalEnd) {
           routeSegment += "?";
-          rawRouteSegment += "?";
+          rawRouteSegment += char;
           state = "NORMAL";
           break;
         }
 
         if (char === escapeStart) {
           state = "OPTIONAL_ESCAPE";
+          rawRouteSegment += char;
           break;
         }
 
@@ -248,6 +253,7 @@ export function getRouteSegments(routeId: string) {
       case "OPTIONAL_ESCAPE": {
         if (char === escapeEnd) {
           state = "OPTIONAL";
+          rawRouteSegment += char;
           break;
         }
 
@@ -259,8 +265,8 @@ export function getRouteSegments(routeId: string) {
   }
 
   // process remaining segment
-  pushRouteSegment(routeSegment);
-  return routeSegments;
+  pushRouteSegment(routeSegment, rawRouteSegment);
+  return [routeSegments, rawRouteSegments];
 }
 
 function findParentRouteId(
@@ -285,8 +291,10 @@ function getRouteInfo(
   let routeId = createFlatRouteId(filePathWithoutApp);
   let routeIdWithoutRoutes = routeId.slice(routeDirectory.length + 1);
   let index = isIndexRoute(routeIdWithoutRoutes);
-  let routeSegments = getRouteSegments(routeIdWithoutRoutes);
-  let routePath = createRoutePath(routeSegments, index);
+  let [routeSegments, rawRouteSegments] =
+    getRouteSegments(routeIdWithoutRoutes);
+
+  let routePath = createRoutePath(routeSegments, rawRouteSegments, index);
 
   return {
     id: routeIdWithoutRoutes,
@@ -298,23 +306,32 @@ function getRouteInfo(
   };
 }
 
-export function createRoutePath(routeSegments: string[], isIndex: boolean) {
+export function createRoutePath(
+  routeSegments: string[],
+  rawRouteSegments: string[],
+  isIndex: boolean
+) {
   let result = "";
 
   if (isIndex) {
     routeSegments = routeSegments.slice(0, -1);
   }
 
-  for (let segment of routeSegments) {
+  for (let index = 0; index < routeSegments.length; index++) {
+    let segment = routeSegments[index];
+    let rawSegment = rawRouteSegments[index];
+
     // skip pathless layout segments
-    if (segment.startsWith("_")) {
+    if (segment.startsWith("_") && rawSegment.startsWith("_")) {
       continue;
     }
 
     // remove trailing slash
-    if (segment.endsWith("_")) {
+    if (segment.endsWith("_") && rawSegment.endsWith("_")) {
       segment = segment.slice(0, -1);
     }
+
+    console.log({ segment, rawSegment });
 
     result += `/${segment}`;
   }
