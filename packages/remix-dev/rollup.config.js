@@ -37,6 +37,7 @@ module.exports = function rollup() {
         format: "cjs",
         preserveModules: true,
         exports: "named",
+        sourcemap: true,
       },
       plugins: [
         babel({
@@ -83,11 +84,13 @@ module.exports = function rollup() {
           banner: createBanner("@remix-run/dev", version, true),
           dir: outputDir,
           format: "cjs",
+          sourcemap: true,
         },
         {
           banner: createBanner("@remix-run/dev", version, true),
           dir: outputDist,
           format: "cjs",
+          sourcemap: true,
         },
       ],
       plugins: [

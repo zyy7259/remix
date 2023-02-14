@@ -5,6 +5,10 @@ const fs = require("fs");
 const fse = require("fs-extra");
 const nodeResolve = require("@rollup/plugin-node-resolve").default;
 const path = require("path");
+const { promisify } = require("util");
+const g = require("glob");
+
+const glob = promisify(g);
 
 const REPO_ROOT_DIR = __dirname;
 
@@ -100,6 +104,7 @@ function copyPublishFiles(packageName) {
   });
 }
 
+let mapSourcesReg = /"sources":\[(.*?)\]/;
 /**
  * @returns {import("rollup").Plugin}
  */
@@ -121,6 +126,39 @@ function copyToPlaygrounds() {
             playgroundDir
           );
           fse.copySync(writtenDir, destDir);
+
+          let t = Date.now();
+          let mapFileArr = await glob("**/*.map", { cwd: writtenDir });
+          for (let mapFile of mapFileArr) {
+            let absMapFile = path.join(writtenDir, mapFile);
+            let mapCnt = await fse.readFile(absMapFile, "utf8");
+            let sources = mapCnt.match(mapSourcesReg);
+            if (sources && !!sources[1]) {
+              let absMapDir = path.dirname(absMapFile);
+              let newAbsMapFile = path.join(destDir, mapFile);
+              let newSources = sources[1]
+                .split(",")
+                .map((str) => {
+                  let sourceFile = str.slice(1, -1);
+                  let absSourceFile = path.join(absMapDir, sourceFile);
+                  let newSourceFile = path.relative(
+                    path.dirname(newAbsMapFile),
+                    absSourceFile
+                  );
+                  return `"${newSourceFile}"`;
+                })
+                .join(",");
+              let newMapCnt = mapCnt.replace(sources[1], newSources);
+              await fse.writeFile(newAbsMapFile, newMapCnt);
+            }
+          }
+          console.log(
+            "writtenDir",
+            writtenDir,
+            mapFileArr.length,
+            Date.now() - t
+          );
+
           await triggerLiveReload(playgroundDir);
         }
       } else {
@@ -391,6 +429,7 @@ function getCliConfig({ packageName, version }) {
       banner: createBanner(packageName, version, true),
       dir: outputDist,
       format: "cjs",
+      sourcemap: true,
     },
     plugins: [
       babel({
